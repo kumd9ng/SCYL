@@ -1,0 +1,13 @@
+{
+  "name": "SCYL — Songs Change Your Life.",
+  "short_name": "SCYL",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f3ee",
+  "theme_color": "#f4f3ee",
+  "icons": [
+    {"src": "assets/scyl-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "assets/scyl-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}
+  ]
+}

@@ -1,0 +1,1 @@
+{"version":"2.0.0","tasks":[{"label":"SCYL: Start","type":"shell","command":"npm start","isBackground":true,"problemMatcher":[],"presentation":{"reveal":"always","panel":"dedicated"}},{"label":"SCYL: Test","type":"shell","command":"npm test","group":"test","problemMatcher":[]}]}

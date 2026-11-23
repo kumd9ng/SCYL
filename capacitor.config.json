@@ -1,0 +1,17 @@
+{
+  "appId": "com.scyl.app",
+  "appName": "SCYL",
+  "webDir": "www",
+  "backgroundColor": "#f4f3ee",
+  "loggingBehavior": "debug",
+  "server": {
+    "hostname": "com.scyl.app",
+    "androidScheme": "https",
+    "iosScheme": "capacitor",
+    "cleartext": false
+  },
+  "android": {"allowMixedContent": false},
+  "ios": {"contentInset": "automatic"},
+  "plugins": {"App": {"disableBackButtonHandler": true}},
+  "includePlugins": ["@capacitor/app", "@capacitor/share", "@capacitor/filesystem"]
+}

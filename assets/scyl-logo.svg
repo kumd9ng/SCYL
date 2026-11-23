@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 96 96" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">SCYL circular dial</title>
+  <desc id="desc">A circular dial with an inset center circle and a single orange indicator. No lettering.</desc>
+  <circle cx="48" cy="48" r="35" stroke="#252724" stroke-width="3.5"/>
+  <circle cx="48" cy="48" r="13" stroke="#252724" stroke-width="3.5"/>
+  <circle cx="65.5" cy="17.689" r="5" fill="#e85825"/>
+</svg>

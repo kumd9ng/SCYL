@@ -1,0 +1,28 @@
+name: Feature discussion
+description: Propose a focused improvement or discuss a new audio source.
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the listening or development task and who needs it.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe the interaction and result, including any change to YouTube input or the portrait layout.
+    validations:
+      required: true
+  - type: textarea
+    id: audio
+    attributes:
+      label: Audio access, if relevant
+      description: For mixing, FX, or a new provider, explain the proposed audio source and how direct processing would be supported. Do not include credentials.
+  - type: textarea
+    id: verification
+    attributes:
+      label: How could it be verified?
+      description: Suggest a concrete result to check; distinguish a visual preview from functioning audio behavior.

@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a reproducible playback or interface problem.
+title: "[Bug] "
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Device model, OS, browser version, and web or native build. Include the commit or release if known.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include a public video URL only if needed. Do not include private history, cookies, or account details.
+      placeholder: "1. Open SCYL\n2. Add a video\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the visible error and a redacted screenshot or log if useful.
+    validations:
+      required: true
+  - type: dropdown
+    id: playback_source
+    attributes:
+      label: Where did you observe it?
+      options:
+        - Real YouTube player in a browser
+        - Installed app on a physical device
+        - Native simulator or emulator
+        - Mocked player or unit test
+        - Interface only; playback was not involved
+    validations:
+      required: true

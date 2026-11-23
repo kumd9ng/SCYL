@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SCYL</string>
+    <string name="title_activity_main">SCYL</string>
+    <string name="package_name">com.scyl.app</string>
+    <string name="custom_url_scheme">com.scyl.app</string>
+</resources>
