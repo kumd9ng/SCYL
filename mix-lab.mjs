@@ -3,20 +3,25 @@ import { analyzeAudio } from './lib/audio-analysis.mjs';
 import { createAudioMixEngine } from './lib/audio-engine.mjs';
 import { loadAudioFile } from './lib/audio-files.mjs';
 import { createFilePlaybackLifecycle } from './lib/file-playback-lifecycle.mjs';
+import { createWaveformTransport, WAVEFORM_VIEW_SECONDS } from './lib/waveform-transport.mjs';
 
 const $ = id => document.getElementById(id);
 let context, engine, tracks = [], fileQueue = [], queueIndex = 0;
 let sourceMode = 'none', busy = false, selectedFx = 0, lastStatus = '';
 let generation = 0, playbackIntent = 0, loadingNext = false, wantsPlayback = false, loading = new AbortController();
+let waveTransport = null;
+let playbackStarted = false;
 const format = seconds => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds) % 60)).padStart(2, '0')}`;
 function message(text) { if (text !== lastStatus) { $('engine-message').textContent = text; lastStatus = text; } }
 const playbackLifecycle = createFilePlaybackLifecycle({
   onInterrupt(reason) {
+    waveTransport?.cancel();
     playbackIntent++; wantsPlayback = false;
     if (!engine) return;
     if (engine.snapshot().state === 'playing') engine.pause();
     if (engine.snapshot().state !== 'paused') return;
     $('pause').disabled = false; $('pause').textContent = '이어 듣기';
+    $('demo-play').textContent = '이 위치에서 재생';
     message(reason.startsWith('audio-')
       ? '기기의 오디오가 중단되어 일시정지했습니다. 이어 듣기를 누르면 같은 위치에서 재생합니다.'
       : '앱을 벗어나 일시정지했습니다. 돌아온 뒤 이어 듣기를 눌러 주세요.');
@@ -55,9 +60,11 @@ function renderTracks() {
   renderQueue();
 }
 function resetSession(mode) {
+  waveTransport?.cancel();
   generation++; playbackIntent++; loading.abort(); loading = new AbortController();
   wantsPlayback = false; engine?.dispose(); engine = null; tracks = []; fileQueue = []; queueIndex = 0;
   sourceMode = mode; loadingNext = false; busy = false;
+  playbackStarted = false;
   $('demo-play').disabled = true; $('pause').disabled = true; $('stop').disabled = true;
   $('pause').textContent = '일시정지'; $('demo-play').textContent = '세트 재생'; renderTracks();
   return generation;
@@ -66,6 +73,7 @@ function createEngine() {
   engine = createAudioMixEngine({ context: getContext(), masterGain: .65,
     onAdvance(event) {
       if (sourceMode !== 'files' || tracks[1]?.id !== event.to.id) return;
+      waveTransport?.cancel();
       if ($('fx-sheet').open) $('fx-sheet').close();
       engine.queueNext(null); tracks = [tracks[1]];
       queueIndex = fileQueue.findIndex(item => item.id === tracks[0].id);
@@ -75,6 +83,7 @@ function createEngine() {
     onError(error) { message('재생 오류: ' + error.message); },
   });
   engine.setTracks(tracks);
+  engine.prepare({ fadeDuration: 8 });
 }
 async function decode(entry, token) {
   const result = await loadAudioFile(entry.file, { context: getContext(), id: entry.id, title: entry.title, signal: loading.signal });
@@ -97,6 +106,7 @@ async function attachNext(token, targetEngine) {
         continue;
       }
       if (token !== generation || engine !== targetEngine) return;
+      waveTransport?.cancel();
       let pendingTracks = [tracks[0], next];
       const beginNext = () => {
         pendingTracks = [next]; engine.setTracks(pendingTracks); tracks = pendingTracks;
@@ -167,7 +177,7 @@ $('demo-load').addEventListener('click', async () => {
     tracks = [makeDemoTrack({ bpm: 120, phase: .08 }, 'demo-a', '합성 데모 · 120 BPM'), makeDemoTrack({ bpm: 126, phase: .13, voice: 1 }, 'demo-b', '합성 데모 · 126 BPM')];
     fileQueue = tracks.map(({ id, title }) => ({ id, title }));
     $('source-note').textContent = '직접 합성한 두 음원으로 믹싱을 확인하는 데모입니다. YouTube 음원이 아닙니다.';
-    createEngine(); engine.play({ offset: 20, fadeDuration: 8 }); wantsPlayback = true;
+    createEngine(); engine.seek(20); engine.resume(); wantsPlayback = true; playbackStarted = true;
     $('demo-play').disabled = false; $('demo-play').textContent = '데모 다시 듣기'; $('pause').disabled = false; $('stop').disabled = false;
     message('전환 직전부터 재생합니다. 앞 곡이 끝나기 전에 두 곡의 비트가 겹칩니다.'); renderTracks();
   } catch (error) { if (token === generation) message(error.message); }
@@ -176,18 +186,24 @@ $('demo-load').addEventListener('click', async () => {
 $('demo-play').addEventListener('click', async () => {
   if (busy || !engine) return;
   if (!allowPlaybackRequest()) return;
+  waveTransport?.cancel();
   const targetEngine = engine, token = generation, intent = ++playbackIntent;
   try {
     await getContext().resume();
     if (token !== generation || targetEngine !== engine || intent !== playbackIntent || !playbackLifecycle.canRequestPlayback()) return;
     if (context.state !== 'running') throw new Error('오디오를 시작하지 못했습니다. 재생 버튼을 다시 눌러 주세요.');
-    targetEngine.play({ offset: sourceMode === 'demo' ? 20 : 0, fadeDuration: 8 }); wantsPlayback = true;
+    if (targetEngine.snapshot().state !== 'paused') {
+      targetEngine.prepare({ fadeDuration: 8 });
+      if (sourceMode === 'demo') targetEngine.seek(20);
+    }
+    targetEngine.resume(); wantsPlayback = true; playbackStarted = true;
     $('pause').disabled = false; $('stop').disabled = false; $('pause').textContent = '일시정지';
     $('demo-play').textContent = sourceMode === 'demo' ? '데모 다시 듣기' : '현재 곡 처음부터'; message('재생 중 · 다음 곡은 곡이 끝나기 전에 들어옵니다.');
   } catch (error) { if (token === generation && targetEngine === engine && intent === playbackIntent) message(error.message); }
 });
 $('pause').addEventListener('click', async () => {
   if (!engine) return;
+  waveTransport?.cancel();
   const targetEngine = engine, token = generation, intent = ++playbackIntent;
   try {
     if (targetEngine.snapshot().state === 'paused') {
@@ -195,11 +211,11 @@ $('pause').addEventListener('click', async () => {
       await context.resume();
       if (token !== generation || targetEngine !== engine || intent !== playbackIntent || !playbackLifecycle.canRequestPlayback()) return;
       if (context.state !== 'running') throw new Error('재생 버튼을 다시 눌러 주세요.');
-      targetEngine.resume(); wantsPlayback = true; $('pause').textContent = '일시정지'; message('재생을 이어갑니다.');
-    } else { wantsPlayback = false; targetEngine.pause(); $('pause').textContent = '이어 듣기'; message('일시정지했습니다. 이어 듣기를 누르면 같은 위치에서 재생합니다.'); }
+      targetEngine.resume(); wantsPlayback = true; playbackStarted = true; $('pause').textContent = '일시정지'; $('demo-play').textContent = '현재 곡 처음부터'; message('재생을 이어갑니다.');
+    } else { wantsPlayback = false; targetEngine.pause(); $('pause').textContent = '이어 듣기'; $('demo-play').textContent = '이 위치에서 재생'; message('일시정지했습니다. 이어 듣기를 누르면 같은 위치에서 재생합니다.'); }
   } catch (error) { if (token === generation && targetEngine === engine && intent === playbackIntent) message(error.message); }
 });
-$('stop').addEventListener('click', () => { playbackIntent++; wantsPlayback = false; engine?.stop(); if (engine) engine.setTracks(tracks); $('pause').disabled = true; $('stop').disabled = true; message('정지했습니다.'); });
+$('stop').addEventListener('click', () => { waveTransport?.cancel(); playbackIntent++; wantsPlayback = false; playbackStarted = false; engine?.stop(); if (engine) engine.setTracks(tracks); $('pause').disabled = true; $('stop').disabled = true; $('demo-play').textContent = '세트 재생'; message('정지했습니다.'); });
 document.querySelectorAll('.lab-fx').forEach(button => button.addEventListener('click', () => {
   if (!engine || !tracks[Number(button.dataset.deck)]) { message('음악 파일이나 데모를 준비한 뒤 FX를 적용할 수 있습니다.'); return; }
   selectedFx = Number(button.dataset.deck);
@@ -214,6 +230,31 @@ addEventListener('pageshow', event => { if (event.persisted) void playbackLifecy
 void playbackLifecycle.start().catch(() => {});
 
 const canvas = $('live-wave'), pen = canvas.getContext('2d');
+waveTransport = createWaveformTransport({
+  element: canvas, getEngine: () => engine,
+  getIdentity: () => `${generation}:${tracks.map(track => track.id).join('|')}`,
+  canSeek: () => !busy && playbackLifecycle.canRequestPlayback(),
+  prepare: target => target.prepare({ fadeDuration: 8 }),
+  onBegin() { playbackIntent++; wantsPlayback = false; },
+  onChange({ seeking, cancelled, snapshot }) {
+    if (!snapshot) return;
+    $('pause').textContent = '이어 듣기';
+    $('pause').disabled = snapshot.state !== 'paused';
+    $('stop').disabled = false;
+    $('demo-play').textContent = snapshot.state === 'paused' ? '이 위치에서 재생' : '현재 곡 처음부터';
+    if (!cancelled) message(seeking ? `재생 위치 이동 · ${format(snapshot.position)}` : `${format(snapshot.position)} 위치로 이동했습니다.`);
+  },
+  async onResume(target, isCurrent) {
+    const token = generation, intent = playbackIntent;
+    await getContext().resume();
+    if (!isCurrent() || token !== generation || intent !== playbackIntent || engine !== target || !playbackLifecycle.canPlay()) return;
+    target.resume(); wantsPlayback = true; playbackStarted = true;
+    $('pause').disabled = false; $('pause').textContent = '일시정지';
+    $('demo-play').textContent = '현재 곡 처음부터';
+    message('이동한 위치에서 두 곡을 함께 이어 듣습니다.');
+  },
+  onError(error) { message(`재생 위치를 옮기지 못했습니다. ${error.message}`); },
+});
 const curveEnvelopes = new WeakMap();
 let curveClockTrack = null, curveClockAnchor = 0;
 function smoothEnvelope(track) {
@@ -234,7 +275,7 @@ function smoothEnvelope(track) {
   curveEnvelopes.set(track, result); return result;
 }
 function drawWave(snapshot) {
-  const width = canvas.width, height = canvas.height, center = width * .42, scale = width / 24;
+  const width = canvas.width, height = canvas.height, center = width * .42, scale = width / WAVEFORM_VIEW_SECONDS;
   const baseline = height - 31, top = 18, amplitude = baseline - top - 12;
   pen.clearRect(0, 0, width, height);
   const firstId = snapshot?.decks?.[0]?.id;
@@ -288,21 +329,23 @@ function drawWave(snapshot) {
     trace(points); pen.strokeStyle = i ? '#657159' : '#d55226'; pen.lineWidth = 2.2; pen.lineJoin = 'round'; pen.lineCap = 'round';
     pen.stroke();
   }
-  pen.strokeStyle = '#bfc2b7'; pen.lineWidth = 1;
-  pen.beginPath(); pen.moveTo(0, baseline + 12); pen.lineTo(width, baseline + 12); pen.stroke();
   pen.strokeStyle = '#f4f3ee'; pen.lineWidth = 5;
-  pen.beginPath(); pen.moveTo(center, top - 4); pen.lineTo(center, baseline + 12); pen.stroke();
+  pen.beginPath(); pen.moveTo(center, top - 4); pen.lineTo(center, baseline); pen.stroke();
   pen.strokeStyle = '#30312d'; pen.lineWidth = 1.5;
-  pen.beginPath(); pen.moveTo(center, top - 4); pen.lineTo(center, baseline + 12); pen.stroke();
-  pen.beginPath(); pen.arc(center, baseline + 12, 5.5, 0, Math.PI * 2); pen.fillStyle = '#f4f3ee'; pen.fill(); pen.stroke();
+  pen.beginPath(); pen.moveTo(center, top - 4); pen.lineTo(center, baseline); pen.stroke();
 }
 function frame() {
   const snapshot = engine?.snapshot();
   drawWave(snapshot);
+  canvas.setAttribute('aria-disabled', String(!snapshot?.duration || busy || !playbackLifecycle.canRequestPlayback()));
+  canvas.setAttribute('aria-valuemax', String(Number((snapshot?.duration || 0).toFixed(2))));
+  canvas.setAttribute('aria-valuenow', String(Number((snapshot?.position || 0).toFixed(2))));
+  canvas.setAttribute('aria-valuetext', `${format(snapshot?.position || 0)} / ${format(snapshot?.duration || 0)}`);
   if (snapshot) {
     snapshot.decks.forEach((deck, index) => { const key = index ? 'b' : 'a'; $('time-' + key).textContent = format(deck.position); $('gain-' + key).textContent = `${Math.round(deck.gain * 100)}%`; $('dial-' + key).style.setProperty('--angle', (deck.position / (tracks[index]?.analysis.beatInterval || .5) * 36) + 'deg'); });
     const two = snapshot.decks.filter(deck => deck.started && !deck.ended && deck.gain > .005).length === 2;
-    if (snapshot.state === 'paused') $('mix-state').textContent = '일시정지';
+    if (waveTransport.isSeeking()) $('mix-state').textContent = '위치 이동 중';
+    else if (snapshot.state === 'paused') $('mix-state').textContent = playbackStarted ? '일시정지' : snapshot.position > 0 ? '위치 선택' : '재생 준비';
     else if (two) $('mix-state').textContent = snapshot.plan?.mode === 'beatmatched' ? '비트매칭 · 2곡 재생' : '크로스페이드 · 2곡 재생';
     else if (snapshot.state === 'playing' && snapshot.plan && snapshot.contextTime < snapshot.plan.startTime) $('mix-state').textContent = `${Math.max(0, snapshot.plan.startTime - snapshot.contextTime).toFixed(1)}초 후 전환`;
     else $('mix-state').textContent = snapshot.state === 'playing' ? '재생 중' : snapshot.state === 'ended' ? '완료' : '정지';

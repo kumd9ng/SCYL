@@ -9,6 +9,7 @@ const slots = [0, 1].map(index => ({ index, player: null, ready: false, key: nul
 let queue = [], currentKey = null, activeSlot = 0, repeat = false, mode = 'balanced', volume = 80;
 let playedIds = new Set(), fade = null, awaitingFade = null, switching = false, generation = 0;
 let seeking = false, playing = false, status = '플레이어 연결 중', apiFailed = false;
+let seekValue = 0, jogDrag = null;
 let exporting = false;
 let toastTimer, playWaitTimer, storageWarned = false, lastTime = null, lastTick = performance.now();
 let apiTimeout, youtubeConsent = false, youtubeStarted = false, storageCleared = false;
@@ -131,6 +132,7 @@ function recoverBlockedPlayback(slot) {
   slot.player.cueVideoById({ videoId: track.id, startSeconds });
 }
 function pausePlayback(message = '일시정지') {
+  cancelJog();
   generation++; switching = false; slots.forEach(pauseSlot); cancelFade({ restoreGain: false }); playing = false;
   setStatus(message); renderPlayback();
 }
@@ -178,6 +180,7 @@ async function waitForStop(token) {
 async function switchTo(key, { autoplay = true, fadeIn = false, nativePreview = false } = {}) {
   const target = trackFor(key);
   if (!target) return;
+  cancelJog();
   if (!slots.some(slot => slot.ready)) {
     currentKey = key; persist(); render();
     setStatus(apiFailed ? 'YouTube 연결 실패 · 새로고침 후 다시 시도' : 'YouTube 플레이어 준비 중'); return;
@@ -335,7 +338,7 @@ function renderPlayback() {
   }
   $('next').disabled = !nextTrack() || switching || !slots.some(s => s.ready);
   $('previous').disabled = !loaded || switching || !slot.ready || !playbackAllowed();
-  $('seek').disabled = !loaded || !slot.ready || !(readPlayer(slot, 'getDuration') > 0) || switching || !playbackAllowed();
+  renderSeekAvailability();
   $('retry-youtube').hidden = !apiFailed;
   slots.forEach(source => { $('source-retry-' + source.index).hidden = !(needsNativePlay && source.index === activeSlot && source.ready && loaded && source.key === currentKey && !switching); });
   $('playback-hint').textContent = !loaded ? '좋아하는 곡의 YouTube 링크로 시작하세요.'
@@ -394,11 +397,9 @@ function tick() {
   if (!slot.ready || !track || switching) return;
   const time = readPlayer(slot, 'getCurrentTime'), duration = readPlayer(slot, 'getDuration');
   const actualPlaying = playerState(slot) === PLAYING;
-  if (!seeking) $('seek').value = duration > 0 ? String(Math.round(time / duration * 1000)) : '0';
-  if (!seeking) $('current-record').style.setProperty('--jog-angle', `${duration > 0 ? time / duration * 360 : 0}deg`);
-  if (!seeking) $('elapsed').textContent = formatTime(time);
+  if (!seeking) renderSeekPosition(duration > 0 ? time / duration * 1000 : 0, duration);
   $('duration').textContent = duration > 0 ? formatTime(duration) : '—:——';
-  $('seek').disabled = !(duration > 0) || switching || !playbackAllowed();
+  renderSeekAvailability();
   // Native seek controls do not emit a dedicated event. Cancel a fade on a discontinuity.
   const jumpedForward = lastTime !== null && wallElapsed < 1 && time - lastTime > 2;
   const continuingOutro = fade?.phase === 'out' && duration - time <= modes[mode].fadeOut;
@@ -496,22 +497,38 @@ $('volume').addEventListener('input', () => {
   volume = Number($('volume').value); applyVolume(); persist();
   if ($('volume-value')) $('volume-value').textContent = `${volume}%`;
 });
-$('seek').addEventListener('input', () => {
-  seeking = true; cancelFade(); const duration = readPlayer(slots[activeSlot], 'getDuration');
-  $('elapsed').textContent = formatTime(Number($('seek').value) / 1000 * duration);
-});
-$('seek').addEventListener('change', () => {
-  if (!playbackAllowed()) { seeking = false; return; }
-  const slot = slots[activeSlot], duration = readPlayer(slot, 'getDuration'); cancelFade();
-  if (duration > 0) slot.player.seekTo(Number($('seek').value) / 1000 * duration, true);
-  $('current-record').style.setProperty('--jog-angle', `${Number($('seek').value) / 1000 * 360}deg`);
-  seeking = false; lastTime = null; setStatus(playerState(slot) === PLAYING ? '재생 중' : '일시정지');
-});
+function canSeek() {
+  const slot = slots[activeSlot], duration = readPlayer(slot, 'getDuration');
+  return !!currentTrack() && slot.ready && slot.key === currentKey && Number.isFinite(duration) && duration > 0 && !switching && playbackAllowed();
+}
+function renderSeekAvailability() {
+  const available = canSeek(), surface = $('dial-seek');
+  surface.setAttribute('aria-disabled', String(!available));
+  surface.tabIndex = available ? 0 : -1;
+  if (!available) cancelJog();
+}
+function renderSeekPosition(value, duration = readPlayer(slots[activeSlot], 'getDuration')) {
+  duration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+  seekValue = Math.max(0, Math.min(1000, Number.isFinite(value) ? value : 0));
+  const seconds = duration > 0 ? seekValue / 1000 * duration : 0, surface = $('dial-seek');
+  $('current-record').style.setProperty('--jog-angle', `${seekValue / 1000 * 360}deg`);
+  $('elapsed').textContent = formatTime(seconds);
+  surface.setAttribute('aria-valuemax', String(Math.max(0, duration)));
+  surface.setAttribute('aria-valuenow', String(Math.min(duration, Math.round(seconds))));
+  surface.setAttribute('aria-valuetext', `${formatTime(seconds)} / ${formatTime(duration)}`);
+}
+function commitSeek() {
+  if (!canSeek()) { seeking = false; return; }
+  const slot = slots[activeSlot], duration = readPlayer(slot, 'getDuration');
+  cancelFade();
+  slot.player.seekTo(seekValue / 1000 * duration, true);
+  seeking = false; lastTime = null;
+  setStatus(playerState(slot) === PLAYING ? '재생 중' : '일시정지');
+}
 document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => { mode = button.dataset.mode; cancelFade(); persist(); render(); }));
 // The upper dial is an actual seek control. Buttons inside it keep their own taps.
 // A full rotation spans the current track; wrapping past twelve o'clock is smooth.
 const jog = $('current-record');
-let jogDrag = null;
 function jogAngle(event) {
   const rect = jog.getBoundingClientRect();
   return Math.atan2(event.clientY - rect.top - rect.height / 2, event.clientX - rect.left - rect.width / 2);
@@ -522,20 +539,25 @@ function finishJog(event, commit) {
   jog.classList.remove('dragging');
   if (jog.hasPointerCapture?.(event.pointerId)) jog.releasePointerCapture(event.pointerId);
   if (!drag.moved) return;
-  if (commit && drag.key === currentKey && !$('seek').disabled) $('seek').dispatchEvent(new Event('change', { bubbles: true }));
-  else { seeking = false; lastTime = null; }
+  if (commit && drag.key === currentKey && drag.generation === generation && canSeek()) commitSeek();
+  else {
+    seeking = false; lastTime = null;
+    const slot = slots[activeSlot], duration = readPlayer(slot, 'getDuration');
+    renderSeekPosition(duration > 0 ? readPlayer(slot, 'getCurrentTime') / duration * 1000 : 0, duration);
+  }
 }
+function cancelJog() { if (jogDrag) finishJog({ pointerId: jogDrag.pointerId }, false); }
 jog.addEventListener('pointerdown', event => {
-  if (event.button !== 0 || jogDrag || $('seek').disabled || event.target.closest('button,input,a')) return;
+  if (event.button !== 0 || jogDrag || !canSeek() || event.target.closest('button,input,a')) return;
   const rect = jog.getBoundingClientRect();
   const distance = Math.hypot(event.clientX - rect.left - rect.width / 2, event.clientY - rect.top - rect.height / 2);
   if (distance < rect.width * .29 || distance > rect.width * .52) return;
-  jogDrag = { pointerId: event.pointerId, key: currentKey, angle: jogAngle(event), value: Number($('seek').value), accumulated: 0, moved: false };
+  jogDrag = { pointerId: event.pointerId, key: currentKey, generation, angle: jogAngle(event), value: seekValue, accumulated: 0, moved: false };
   jog.setPointerCapture(event.pointerId);
 });
 jog.addEventListener('pointermove', event => {
   if (!jogDrag || event.pointerId !== jogDrag.pointerId) return;
-  if (jogDrag.key !== currentKey || $('seek').disabled) { finishJog(event, false); return; }
+  if (jogDrag.key !== currentKey || jogDrag.generation !== generation || !canSeek()) { finishJog(event, false); return; }
   const angle = jogAngle(event);
   let delta = angle - jogDrag.angle;
   if (delta > Math.PI) delta -= Math.PI * 2;
@@ -543,13 +565,20 @@ jog.addEventListener('pointermove', event => {
   jogDrag.angle = angle; jogDrag.accumulated += delta;
   if (!jogDrag.moved && Math.abs(jogDrag.accumulated) < .07) return;
   jogDrag.moved = true; event.preventDefault(); jog.classList.add('dragging');
-  $('seek').value = String(Math.max(0, Math.min(1000, jogDrag.value + jogDrag.accumulated / (Math.PI * 2) * 1000)));
-  jog.style.setProperty('--jog-angle', `${Number($('seek').value) / 1000 * 360}deg`);
-  $('seek').dispatchEvent(new Event('input', { bubbles: true }));
+  seeking = true; cancelFade();
+  renderSeekPosition(jogDrag.value + jogDrag.accumulated / (Math.PI * 2) * 1000);
 });
 jog.addEventListener('pointerup', event => finishJog(event, true));
 jog.addEventListener('pointercancel', event => finishJog(event, false));
 jog.addEventListener('lostpointercapture', event => finishJog(event, false));
+$('dial-seek').addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) || !canSeek()) return;
+  event.preventDefault(); cancelJog();
+  const slot = slots[activeSlot], duration = readPlayer(slot, 'getDuration'), current = readPlayer(slot, 'getCurrentTime');
+  const seconds = event.key === 'Home' ? 0 : event.key === 'End' ? duration
+    : current + (['ArrowRight', 'ArrowUp'].includes(event.key) ? 5 : -5);
+  renderSeekPosition(seconds / duration * 1000, duration); commitSeek();
+});
 
 for (const [button, dialog] of [['help-button', 'help-dialog'], ['plan-button', 'plan-dialog'], ['open-settings', 'settings-dialog'], ['fx-button', 'fx-dialog']]) $(button)?.addEventListener('click', () => {
   if (button === 'fx-button' && $('fx-track-name')) $('fx-track-name').textContent = 'YouTube 모드';

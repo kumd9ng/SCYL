@@ -114,6 +114,47 @@ test('seeking cancels scheduled incoming source and recreates only still-live de
   engine.dispose();
 });
 
+test('preparing and scrubbing a pair is silent until explicit resume starts the selected overlap', () => {
+  const context = fakeContext(); context.state = 'suspended';
+  const engine = createAudioMixEngine({ context, scheduleAhead: 0 });
+  engine.setTracks([track('A'), track('B', 125)]);
+  const ready = engine.prepare({ fadeDuration: 8 });
+  assert.equal(ready.state, 'paused'); assert.equal(context.sources.length, 0);
+  assert.ok(ready.duration > 40);
+  const midpoint = ready.plan.startTime - context.currentTime + ready.plan.fadeDuration / 2;
+  const preview = engine.seek(midpoint);
+  assert.equal(context.sources.length, 0); assert.equal(preview.state, 'paused');
+  near(preview.decks[0].position, 36); near(preview.decks[1].position, 3.84);
+  assert.ok(preview.decks.every(deck => deck.gain === 0));
+  context.state = 'running'; context.currentTime = 80;
+  const resumed = engine.resume();
+  assert.equal(context.sources.length, 2);
+  resumed.decks.forEach((deck, index) => {
+    near(context.sources[index].starts[0].offset, preview.decks[index].position);
+    near(deck.rate, preview.decks[index].rate); near(deck.gain, Math.SQRT1_2);
+  });
+  engine.dispose();
+});
+
+test('seeking across the transition while paused promotes exactly once on explicit resume', () => {
+  const context = fakeContext(); let advances = 0;
+  const engine = createAudioMixEngine({ context, scheduleAhead: 0, onAdvance() { advances++; engine.queueNext(null); } });
+  engine.setTracks([track('A'), track('B', 125)]); engine.prepare();
+  const plan = engine.snapshot().plan;
+  const target = plan.endTime - context.currentTime + 2;
+  const preview = engine.seek(target);
+  assert.equal(advances, 0); assert.equal(context.sources.length, 0);
+  assert.equal(preview.decks.length, 2); assert.equal(preview.decks[0].ended, true);
+  const incomingPosition = preview.decks[1].position;
+  context.currentTime = 100; const resumed = engine.resume();
+  assert.equal(advances, 1); assert.equal(resumed.decks.length, 1);
+  assert.equal(resumed.decks[0].id, 'B'); near(resumed.decks[0].position, incomingPosition);
+  assert.equal(context.sources.length, 1); assert.equal(context.sources[0].starts.length, 1);
+  engine.snapshot(); engine.pause(); engine.resume(); engine.snapshot();
+  assert.equal(advances, 1);
+  engine.dispose();
+});
+
 test('promotion retains B source without stop/start and C inherits its audible tempo', () => {
   const { context, engine } = setup();
   const outgoing = context.sources[0], incoming = context.sources[1];
@@ -151,6 +192,24 @@ test('a queued successor while paused starts only on resume with current offset 
   near(context.sources[count].starts[0].offset, paused.decks[0].position);
   near(context.sources[count].playbackRate.value, .96);
   near(context.sources[count + 1].playbackRate.value, 120 / 110);
+  engine.dispose();
+});
+
+test('the promoted track can rewind to its beginning while its successor stays aligned', () => {
+  const { context, engine } = setup();
+  context.currentTime = 31; engine.queueNext(null); engine.queueNext(track('C', 110));
+  const before = engine.pause();
+  assert.ok(before.decks[0].position > 8);
+  const sourceCount = context.sources.length;
+  const rewound = engine.seek(0);
+  assert.equal(rewound.state, 'paused'); near(rewound.decks[0].position, 0);
+  assert.equal(context.sources.length, sourceCount); assert.equal(rewound.decks[1].started, false);
+  context.currentTime = 100; const resumed = engine.resume();
+  near(resumed.decks[0].position, 0); near(context.sources[sourceCount].starts[0].offset, 0);
+  near(resumed.decks[0].rate, .96);
+  context.currentTime = (resumed.plan.startTime + resumed.plan.endTime) / 2;
+  const overlap = engine.snapshot();
+  near(overlap.decks[0].gain, Math.SQRT1_2); near(overlap.decks[1].gain, Math.SQRT1_2);
   engine.dispose();
 });
 

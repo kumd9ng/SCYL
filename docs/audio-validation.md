@@ -1,4 +1,4 @@
-# Audio validation · 0.3.1
+# Audio validation · 0.3.2
 
 Checked on 25 November 2026 in desktop Chrome on Windows. These results concern local-file audio, not YouTube mixing or a physical mobile device.
 
@@ -23,6 +23,12 @@ During the first actual overlap, suspending the real `AudioContext` paused the a
 
 ## Other checks and limits
 
-All 73 unit tests, syntax checks, the web build, and Android/iOS asset synchronization passed. The lifecycle tests include native startup gating, background interruption, paused-position retention, stale callbacks, page restoration, and failure handling. Synchronization is not native compilation or store submission.
+All 87 unit tests, syntax checks, the web build, and Android/iOS asset synchronization passed. The lifecycle and transport tests include native startup gating, background interruption, paused-position retention, stale callbacks, page restoration, silent preparation, transition-boundary seeking, and rewinding the retained track after promotion. Synchronization is not native compilation or store submission.
+
+## Waveform transport
+
+All 18 browser transport checks passed against the 0.3.2 web bundle. Three real mouse drags moved the curve forward by approximately five seconds, backward by two seconds while silent, and forward by two seconds during actual overlapping playback. Native Web Audio start/stop calls were observed without replacing their audio behavior: both source offsets changed by the same timeline displacement multiplied by their respective playback rates. After the final drag, both sources resumed and the crossfade gains progressed.
+
+The checks also covered silent preparation before the first physical Play click, the absence of a separate seek bar, the accessible waveform slider, keyboard event handling, and 390×844 layout. Vertical scrolling was verified using the actual window scroll API and `touch-action: pan-y`; a physical phone touch gesture remains unverified.
 
 These synthesized fixtures do not establish mixing quality or tempo-analysis accuracy for arbitrary music. Playback-rate changes also change pitch. Physical iPhone/Android playback, native file selection, and musical listening evaluation remain unverified.

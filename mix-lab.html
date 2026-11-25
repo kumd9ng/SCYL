@@ -23,9 +23,10 @@
   </section>
   <section class="lab-wave" aria-label="두 곡의 흐르는 곡선과 소리가 겹치는 구간">
     <div class="wave-label"><span>TRANSITION</span><output id="mix-state">준비</output></div>
-    <canvas id="live-wave" width="660" height="200" aria-label="두 음원의 에너지를 부드러운 곡선으로 표시하며 재생에 맞춰 왼쪽으로 흐릅니다"></canvas>
+    <canvas id="live-wave" width="660" height="200" role="slider" tabindex="0" aria-label="두 곡의 재생 위치" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00 / 0:00" aria-disabled="true" aria-describedby="wave-help"></canvas>
     <div class="curve-key" aria-hidden="true"><span>현재 곡</span><span>다음 곡</span></div>
     <p id="wave-detail">두 곡의 곡선이 흐르며, 표시된 구간에서 소리가 겹칩니다.</p>
+    <p id="wave-help">곡선을 좌우로 밀어 앞뒤로 이동 · 방향키는 5초 이동</p>
   </section>
   <section class="lab-deck" aria-labelledby="title-b">
     <div class="deck-label"><span>02 / NEXT</span><output id="tempo-b">분석 전</output></div>

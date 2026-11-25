@@ -37,7 +37,7 @@ The interface is currently in Korean. Your YouTube set is saved locally; no SCYL
 | --- | --- | --- |
 | Upper/lower dials | Current and next video thumbnails after consent | Current and next decoded tracks |
 | **fx** controls | Explain source limitations; no effects are applied | Apply a low-pass filter and echo |
-| Center graph | No audio-analysis display | Two smooth filled curves derived from decoded audio, scrolling through a fixed playhead |
+| Center graph | No audio-analysis display | Two smooth filled curves; drag them left/right to move both tracks along their shared timeline |
 | Transition | Stop the current player before starting the next | Overlap tracks; align estimated beats when suitable |
 | Input | Individual YouTube video URLs | Audio files selected from the device |
 | Original video | Visible, separate, and unmasked while playing | No YouTube connection is required |
@@ -59,6 +59,8 @@ After `npm start`, open **http://127.0.0.1:4317/mix-lab.html** or follow the sou
 Select up to **100 files**, with a maximum of **60 MiB and 12 minutes per file**. Supported formats depend on the browser's decoder; mono and stereo are accepted. SCYL reads local metadata, decodes the current and next tracks into two playback buffers, and analyzes their PCM in a worker for waveform peaks and estimated tempo/beat positions. Files, the file queue, and analysis results are not uploaded or persisted; select the files again after reloading.
 
 Two audio sources share one Web Audio clock and overlap with an equal-power crossfade. Between the dials, two smooth filled curves follow decoded audio and playback position, crossing within the highlighted transition region. Filter and echo controls process the actual audio. Reliable estimated beat grids allow alignment; uncertain grids or unsuitable tempo ratios fall back to a plain crossfade.
+
+Drag the center curves **left to move forward, right to move backward**. Both tracks follow the same timeline during a transition. Playback continues from the selected position after releasing a drag that began while playing; a paused selection stays silent. The graph also supports Left/Right keys in five-second steps and Home/End. It can seek within the decoded pair, including earlier parts of the current track after a transition; previously released tracks require selecting those files again.
 
 Tempo adjustment uses playback rate, so **pitch changes too**; there is no pitch-preserving time-stretching. Analysis is not guaranteed accurate for every song. Native file selection and playback still require physical-device verification.
 
