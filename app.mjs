@@ -1,6 +1,7 @@
 import { parseYouTubeUrl, formatTime } from './lib/youtube.mjs';
 import { TRANSITION_MODES, gainForFade, shouldStartTransition } from './lib/transition.mjs';
 import { createNativeLifecycleController } from './lib/native-lifecycle.mjs';
+import { mountAccount } from './lib/account-ui.mjs';
 
 const $ = (id) => document.getElementById(id);
 const STORAGE_KEY = 'scyl.session.v1';
@@ -19,7 +20,8 @@ const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform 
 const nativePlatform = Boolean(window.Capacitor?.isNativePlatform?.());
 let nativeReady = !nativePlatform, nativeActive = !nativePlatform, nativeStateFailed = false;
 let nativeLifecycle = null;
-const playbackAllowed = () => !document.hidden && nativeReady && nativeActive && !document.querySelector('dialog[open]');
+let accountGate;
+const playbackAllowed = () => accountGate?.canUse() && !document.hidden && nativeReady && nativeActive && !document.querySelector('dialog[open]');
 const modes = TRANSITION_MODES;
 const keyFor = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const trackFor = key => queue.find(track => track.key === key);
@@ -727,6 +729,7 @@ function connectYouTube({ retry = false } = {}) {
 }
 $('connect-youtube').addEventListener('click', connectYouTube);
 $('retry-youtube').addEventListener('click', () => connectYouTube({ retry: true }));
+accountGate = mountAccount({ onLock() { pausePlayback('계정 인증 후 재생할 수 있습니다.'); } });
 if (youtubeConsent) connectYouTube();
 else setStatus('YouTube 연결 동의 후 재생할 수 있어요');
 setInterval(tick, 100);

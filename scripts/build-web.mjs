@@ -3,14 +3,16 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { readAccountBuildConfig } from './account-config.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const out = path.join(root, 'www');
+const accountConfig = await readAccountBuildConfig(new URL('..', import.meta.url));
 const config = JSON.parse(await readFile(path.join(root, 'capacitor.config.json'), 'utf8'));
 if (config.webDir !== 'www' || path.dirname(out) !== root || path.basename(out) !== 'www') {
   throw new Error('Refusing to package outside the project-owned www directory.');
 }
-const inputs = ['index.html', 'privacy.html', 'mix-lab.html', 'style.css', 'mix-lab.css', 'manifest.webmanifest'];
+const inputs = ['index.html', 'privacy.html', 'mix-lab.html', 'auth.html', 'style.css', 'mix-lab.css', 'account.css', 'manifest.webmanifest'];
 async function collect(relative) {
   for (const item of await readdir(path.join(root, relative), { withFileTypes: true })) {
     const next = path.join(relative, item.name);
@@ -25,17 +27,18 @@ for (const file of [...inputs, 'app.mjs', 'privacy.mjs', 'mix-lab.mjs', 'audio-a
   if (!(await stat(path.join(root, file))).isFile()) throw new Error('Missing build input: ' + file);
 }
 const html = new Map();
-for (const [file, source] of [['index.html', 'app'], ['privacy.html', 'privacy'], ['mix-lab.html', 'mix-lab']]) {
+for (const [file, source] of [['index.html', 'app'], ['privacy.html', 'privacy'], ['mix-lab.html', 'mix-lab'], ['auth.html', 'auth']]) {
   const content = await readFile(path.join(root, file), 'utf8');
   const reference = `src="${source}.mjs"`;
   if (content.split(reference).length !== 2) throw new Error(`Expected exactly one ${reference} entry in ${file}.`);
   html.set(file, content.replace(reference, `src="${source}.js"`));
 }
 const compiled = await build({
-  absWorkingDir: root, entryPoints: { app: 'app.mjs', privacy: 'privacy.mjs', 'mix-lab': 'mix-lab.mjs', 'audio-analysis-worker': 'audio-analysis-worker.mjs', 'audio-render-check': 'lib/audio-render-check.mjs' }, outdir: out,
+  absWorkingDir: root, entryPoints: { app: 'app.mjs', privacy: 'privacy.mjs', 'mix-lab': 'mix-lab.mjs', auth: 'auth.mjs', 'audio-analysis-worker': 'audio-analysis-worker.mjs', 'audio-render-check': 'lib/audio-render-check.mjs' }, outdir: out,
   bundle: true, splitting: true, format: 'esm', platform: 'browser',
   target: ['safari15.4', 'chrome90'], chunkNames: 'chunks/[name]-[hash]',
   write: false, metafile: true, sourcemap: false, logLevel: 'warning',
+  define: { __SCYL_ACCOUNT_CONFIG__: JSON.stringify(accountConfig) },
 });
 for (const output of compiled.outputFiles) {
   const relative = path.relative(out, path.resolve(output.path));

@@ -27,7 +27,7 @@ The visual identity uses an off-white surface, charcoal controls, and an orange 
 - Transition sequentially; use volume fades only where the player supports them.
 - Pause when the app is no longer in the foreground.
 
-The YouTube set is stored locally. Its 14-track first-set counter is informational; no payment or usage gate is enforced. SCYL accounts, cloud sets, advertisements supplied by SCYL, and family account management are not connected.
+The YouTube set is stored locally. Its 14-track first-set counter is informational; no payment or usage gate is enforced. Configured builds use the same email identity as MEOW. Cloud sets, advertisements supplied by SCYL, and family account management are not connected. Authentication setup and remaining operational verification are documented in shared-account.md.
 
 ## Local-file mixing
 

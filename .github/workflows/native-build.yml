@@ -27,6 +27,10 @@ on:
 permissions:
   contents: read
 
+env:
+  SCYL_SUPABASE_URL: ${{ vars.SCYL_SUPABASE_URL }}
+  SCYL_SUPABASE_ANON_KEY: ${{ vars.SCYL_SUPABASE_ANON_KEY }}
+
 concurrency:
   group: native-build-${{ github.ref }}
   cancel-in-progress: true

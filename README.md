@@ -31,7 +31,7 @@ Open **http://127.0.0.1:4317** in a browser. Use the local server rather than op
 2. Add the next song and arrange your set.
 3. Consent to connecting to YouTube, then press Play. On iPhone, the original video's Play button may need a direct tap.
 
-The interface is currently in Korean. Your YouTube set is saved locally; no SCYL account is needed. The source-mode link opens local-file mixing, described below. Keep the app visible while listening — leaving the page pauses playback.
+The interface is currently in Korean. Your YouTube set is saved locally. A build configured with the shared MEOW authentication project requires email sign-in; an unconfigured local open-source build runs without that account connection. The source-mode link opens local-file mixing, described below. Keep the app visible while listening — leaving the page pauses playback.
 
 ## The interface
 
@@ -88,7 +88,7 @@ The original SCYL symbol uses two concentric circular outlines and one orange in
 
 SCYL stores the YouTube set, preferences, and consent choice on the device. After consent, the original player and thumbnails connect to YouTube/Google. Local audio files and their analysis stay in memory and are not uploaded or saved by SCYL. The in-app privacy page explains local deletion. Native YouTube-set export opens the device share sheet; closing that sheet does not confirm another app saved the file.
 
-Billing, an advertising SDK, family accounts, and a SCYL account service are not connected. SCYL is independent of Apple, Braun, Pacemaker, Spotify, and YouTube.
+Billing, an advertising SDK, and family plans are not connected. The optional MEOW shared-account connection uses Supabase email authentication; see [account setup and validation limits](docs/shared-account.md). SCYL is independent of Apple, Braun, Pacemaker, Spotify, and YouTube.
 
 ## Source layout
 

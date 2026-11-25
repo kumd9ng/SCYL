@@ -4,6 +4,7 @@ import { createAudioMixEngine } from './lib/audio-engine.mjs';
 import { loadAudioFile } from './lib/audio-files.mjs';
 import { createFilePlaybackLifecycle } from './lib/file-playback-lifecycle.mjs';
 import { createWaveformTransport, WAVEFORM_VIEW_SECONDS } from './lib/waveform-transport.mjs';
+import { mountAccount } from './lib/account-ui.mjs';
 
 const $ = id => document.getElementById(id);
 let context, engine, tracks = [], fileQueue = [], queueIndex = 0;
@@ -11,6 +12,7 @@ let sourceMode = 'none', busy = false, selectedFx = 0, lastStatus = '';
 let generation = 0, playbackIntent = 0, loadingNext = false, wantsPlayback = false, loading = new AbortController();
 let waveTransport = null;
 let playbackStarted = false;
+const accountGate = mountAccount({ onLock() { waveTransport?.cancel(); playbackIntent++; wantsPlayback = false; engine?.pause(); } });
 const format = seconds => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds) % 60)).padStart(2, '0')}`;
 function message(text) { if (text !== lastStatus) { $('engine-message').textContent = text; lastStatus = text; } }
 const playbackLifecycle = createFilePlaybackLifecycle({
@@ -29,6 +31,7 @@ const playbackLifecycle = createFilePlaybackLifecycle({
   onError() { message('앱의 재생 상태를 확인하지 못했습니다. 앱을 다시 열어 주세요.'); },
 });
 function allowPlaybackRequest() {
+  if (!accountGate.require()) return false;
   if (playbackLifecycle.canRequestPlayback()) return true;
   const state = playbackLifecycle.getState();
   message(state.failed || state.contextState === 'closed'
@@ -138,9 +141,10 @@ async function attachNext(token, targetEngine) {
     }
   } finally { if (token === generation) { loadingNext = false; renderTracks(); } }
 }
-$('choose-files').addEventListener('click', () => $('audio-files').click());
+$('choose-files').addEventListener('click', () => { if (accountGate.require()) $('audio-files').click(); });
 $('audio-files').addEventListener('change', async event => {
   const files = [...event.target.files]; event.target.value = '';
+  if (!accountGate.require()) return;
   if (!files.length) return;
   if (files.length > 100) { message('한 번에 최대 100곡까지 선택할 수 있습니다.'); return; }
   const token = resetSession('files'); busy = true;
@@ -233,7 +237,7 @@ const canvas = $('live-wave'), pen = canvas.getContext('2d');
 waveTransport = createWaveformTransport({
   element: canvas, getEngine: () => engine,
   getIdentity: () => `${generation}:${tracks.map(track => track.id).join('|')}`,
-  canSeek: () => !busy && playbackLifecycle.canRequestPlayback(),
+  canSeek: () => accountGate.canUse() && !busy && playbackLifecycle.canRequestPlayback(),
   prepare: target => target.prepare({ fadeDuration: 8 }),
   onBegin() { playbackIntent++; wantsPlayback = false; },
   onChange({ seeking, cancelled, snapshot }) {
