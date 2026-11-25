@@ -46,13 +46,16 @@ jobs:
         with:
           node-version: '22'
           package-manager-cache: false
-      - name: Select Java 21 and Android SDK 36
+      - name: Select Java 21
         run: |
           test -x "$JAVA_HOME_21_X64/bin/java"
           echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
           echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
           "$JAVA_HOME_21_X64/bin/java" -version
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Ensure Android SDK 36
+        run: |
+          "${ANDROID_HOME:?Android SDK path is not configured}/cmdline-tools/latest/bin/sdkmanager" \
+            --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;36.0.0"
       - name: Install dependencies
         run: npm ci
       - name: Synchronize Android project
