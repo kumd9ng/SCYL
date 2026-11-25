@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSharedAccount, validateSharedAccountConfig } from '../lib/shared-account.mjs';
+import { createSharedAccount, validateSharedAccountConfig, PASSWORD_MIN_LENGTH } from '../lib/shared-account.mjs';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 const URL = 'https://test-project.supabase.co';
@@ -22,6 +22,8 @@ function fixture(overrides = {}) {
   const auth = {
     onAuthStateChange(callback) { listener = callback; return { data: { subscription: { unsubscribe() { disconnected = true; listener = null; } } } }; },
     async getUser() { calls.push(['getUser']); return user ? identified(user) : missing(); },
+    async getSession() { calls.push(['getSession']); return { data: { session: user ? sessionFor(user) : null }, error: null }; },
+    async signInWithPassword(value) { calls.push(['passwordLogin', value]); user = A; listener?.('SIGNED_IN', { user: A }); return { data: { user: A }, error: null }; },
     async signInWithOtp(value) { calls.push(['request', value]); return { data: {}, error: null }; },
     async verifyOtp(value) { calls.push(['verify', value]); user = A; listener?.('SIGNED_IN', { user: A, access_token: 'must-not-leak' }); return { data: { user: A, session: { access_token: 'must-not-leak', user: A } }, error: null }; },
     async signOut(value) { calls.push(['signOut', value]); user = null; listener?.('SIGNED_OUT', null); return { error: null }; },
@@ -36,9 +38,10 @@ function fixture(overrides = {}) {
     const saved = sharedProfile(user, { catId: body.cat_id, mbti: body.mbti_code });
     profiles.set(body.expected_actor, saved); return { data: saved, error: null };
   } };
-  const account = createSharedAccount({ url: URL, key: KEY, now: () => clock, createClient(...args) { clientOptions.push(args); return client; } });
+  const passwordTransport = { async send(url, init) { calls.push(['passwordUpdate', { url, method: init.method }]); return jsonResponse(user); } };
+  const account = createSharedAccount({ url: URL, key: KEY, now: () => clock, fetch: (...args) => passwordTransport.send(...args), createClient(...args) { clientOptions.push(args); return client; } });
   return {
-    account, auth, client, calls, clientOptions, pending,
+    account, auth, client, calls, clientOptions, pending, passwordTransport,
     setUser(value) { user = value; },
     setProfile(value, owner = A) { if (value === null) profiles.delete(owner.id); else profiles.set(owner.id, value); },
     advance(milliseconds) { clock += milliseconds; },
@@ -687,4 +690,172 @@ test('검증값 읽기 중 화면이 폐기되어도 뒤이은 저장과 삭제�
     assert.equal(storage.getItem('scyl-auth-v1-code-verifier'), 'new-controller'); assert.deepEqual(storage.writes, []);
     f.account.dispose();
   }
+});
+
+test('비밀번호 로그인은 기존 공통 회원을 검증하고 메일을 보내거나 새 회원을 만들지 않는다', async () => {
+  const f = fixture(), secret = ' short '; await f.account.start(); f.setProfile(sharedProfile());
+  const snapshots = []; f.account.subscribe(value => snapshots.push(value));
+  const result = await f.account.signInWithPassword('  ' + A.email + ' ', secret);
+  assert.equal(result.ok, true); assert.equal(result.user.id, A.id); assert.equal(result.user.profile.catId, PROFILE.catId);
+  assert.deepEqual(f.calls.find(call => call[0] === 'passwordLogin')[1], { email: A.email, password: secret });
+  assert.equal(f.calls.some(call => call[0] === 'request'), false);
+  assert.equal(f.calls.filter(call => call[0] === 'getUser').length, 2);
+  assert.equal(JSON.stringify([snapshots, result]).includes(secret), false);
+  assert.equal(f.account.getState().busy, false);
+  assert.equal((await f.account.signInWithPassword(B.email, secret)).code, 'already_signed_in');
+  f.account.dispose();
+});
+
+test('잘못된 비밀번호와 서버 오류는 비밀값 없는 한국어 안내로 처리한다', async () => {
+  const f = fixture(); await f.account.start();
+  for (const [email, password, code] of [['bad', 'password', 'invalid_email'], [A.email, '', 'invalid_password'], [A.email, null, 'invalid_password']]) {
+    assert.equal((await f.account.signInWithPassword(email, password)).code, code);
+  }
+  assert.equal(f.calls.some(call => call[0] === 'passwordLogin'), false);
+  for (const code of ['invalid_credentials', 'email_not_confirmed', 'over_request_rate_limit', 'private_backend_error']) {
+    f.auth.signInWithPassword = async () => ({ error: { code, message: 'SECRET_PASSWORD_DETAIL' } });
+    const result = await f.account.signInWithPassword(A.email, 'SECRET_PASSWORD_DETAIL');
+    assert.equal(result.ok, false); assert.match(result.message, /[가-힣]/);
+    assert.equal(JSON.stringify([result, f.account.getState()]).includes('SECRET_PASSWORD_DETAIL'), false);
+    assert.equal(f.account.getState().busy, false); assert.equal(f.account.getState().user, null);
+  }
+  f.account.dispose();
+});
+
+test('비밀번호 로그인 성공 응답만으로 서버 확인 실패나 다른 회원을 통과시키지 않는다', async () => {
+  for (const returned of [identified(B), { error: { status: 503 } }, identified({ ...A, is_anonymous: true })]) {
+    const f = fixture(); await f.account.start(); f.auth.getUser = async () => returned;
+    assert.equal((await f.account.signInWithPassword(A.email, 'password')).ok, false);
+    assert.equal(f.account.getState().user, null); f.account.dispose();
+  }
+});
+
+test('진행 중인 비밀번호 로그인은 중복 요청을 막고 로그아웃 이후 늦게 재로그인하지 않는다', async () => {
+  const held = deferred(), f = fixture(); await f.account.start();
+  f.auth.signInWithPassword = async () => { await held.promise; f.setUser(A); f.emit('SIGNED_IN', { user: A }); return identified(A); };
+  const pending = f.account.signInWithPassword(A.email, 'password'); await tick();
+  assert.equal((await f.account.signInWithPassword(A.email, 'password')).code, 'busy');
+  const logout = f.account.signOut(); assert.equal(f.calls.some(call => call[0] === 'signOut'), false);
+  held.resolve(); assert.equal((await pending).code, 'cancelled'); assert.equal((await logout).ok, true);
+  assert.equal(f.account.getState().phase, 'signed-out'); assert.equal(f.account.getState().user, null); f.account.dispose();
+});
+
+test('비밀번호 설정은 이메일 인증된 공통 회원과 최소 길이를 요구하고 프로필은 유지한다', async () => {
+  const f = fixture(); await f.account.start();
+  assert.equal((await f.account.setPassword('valid-password')).code, 'not_signed_in');
+  f.setUser(A); f.setProfile(sharedProfile()); await f.account.refresh();
+  assert.equal(PASSWORD_MIN_LENGTH, 8);
+  for (const value of ['', null, 123456789, 'a'.repeat(PASSWORD_MIN_LENGTH - 1)]) assert.equal((await f.account.setPassword(value)).code, 'invalid_password');
+  assert.equal(f.calls.some(call => call[0] === 'passwordUpdate'), false);
+  let body;
+  f.passwordTransport.send = async (url, init) => {
+    assert.equal(url, URL + '/auth/v1/user'); assert.equal(init.method, 'PUT');
+    assert.equal(init.headers.apikey, KEY); assert.equal(init.headers.Authorization, 'Bearer ' + sessionFor(A).access_token);
+    body = JSON.parse(init.body); return jsonResponse(A);
+  };
+  const secret = ' new password ';
+  const result = await f.account.setPassword(secret);
+  assert.deepEqual(body, { password: secret }); assert.equal(result.ok, true);
+  assert.equal(result.user.id, A.id); assert.equal(result.user.profile.catId, PROFILE.catId);
+  assert.equal(JSON.stringify([result, f.account.getState()]).includes(secret), false);
+  assert.equal(f.account.getState().busy, false); f.account.dispose();
+});
+
+test('비밀번호 설정 전 계정이 바뀌면 다른 회원에게 변경 요청을 보내지 않는다', async () => {
+  const f = fixture(); f.setUser(A); await f.account.start(); f.setUser(B);
+  const result = await f.account.setPassword('valid-password');
+  assert.equal(result.code, 'account_changed'); assert.equal(f.calls.some(call => call[0] === 'passwordUpdate'), false);
+  assert.equal(f.account.getState().user, null); f.account.dispose();
+});
+
+test('토큰 선택 후 다른 탭의 계정으로 바뀌어도 비밀번호 요청은 최초 검증 회원의 토큰에 고정된다', async () => {
+  const f = fixture(); f.setUser(A); await f.account.start();
+  const pinned = sessionFor(A).access_token; let sent = 0;
+  f.auth.getUser = async token => {
+    if (token) { assert.equal(token, pinned); f.setUser(B); return identified(A); }
+    return identified(B);
+  };
+  f.passwordTransport.send = async (_url, init) => {
+    sent++; assert.equal(init.headers.Authorization, 'Bearer ' + pinned); return jsonResponse(A);
+  };
+  const result = await f.account.setPassword('valid-password');
+  assert.equal(sent, 1); assert.equal(result.code, 'account_changed');
+  assert.equal(f.account.getState().user, null); f.account.dispose();
+});
+
+test('비밀번호 설정 서버 확인 중 계정 전환 이벤트가 오면 변경 요청을 보내지 않는다', async () => {
+  const held = deferred(), f = fixture(); f.setUser(A); await f.account.start();
+  f.auth.getUser = token => token ? held.promise : Promise.resolve(identified(B));
+  const pending = f.account.setPassword('valid-password'); await tick();
+  f.setUser(B); f.emit('SIGNED_IN', { user: B }); held.resolve(identified(A));
+  assert.equal((await pending).code, 'cancelled'); await tick();
+  assert.equal(f.calls.some(call => call[0] === 'passwordUpdate'), false);
+  assert.equal(f.account.getState().user.id, B.id); f.account.dispose();
+});
+
+test('비밀번호 정책 오류는 로그인 유지와 재시도를 지원하고 원문을 공개하지 않는다', async () => {
+  const f = fixture(); f.setUser(A); await f.account.start();
+  for (const code of ['weak_password', 'same_password', 'reauthentication_needed', 'reauthentication_not_valid', 'reauth_nonce_missing', 'unknown_private_detail']) {
+    f.passwordTransport.send = async () => jsonResponse({ code, message: 'SECRET_SERVER_VALUE' }, 422);
+    const result = await f.account.setPassword('SECRET_PASSWORD_VALUE');
+    assert.equal(result.ok, false); assert.match(result.message, /[가-힣]/);
+    assert.equal(f.account.getState().user.id, A.id); assert.equal(f.account.getState().busy, false);
+    assert.equal(JSON.stringify([result, f.account.getState()]).includes('SECRET_'), false);
+  }
+  f.passwordTransport.send = async () => jsonResponse(A); assert.equal((await f.account.setPassword('valid-password')).ok, true); f.account.dispose();
+});
+
+test('비밀번호 설정 중 로그아웃과 화면 종료는 늦은 응답으로 취소되지 않는다', async () => {
+  for (const ending of ['logout', 'dispose']) {
+    const held = deferred(), f = fixture(); f.setUser(A); await f.account.start();
+    f.passwordTransport.send = () => held.promise;
+    const pending = f.account.setPassword('valid-password'); await tick();
+    assert.equal((await f.account.setPassword('another-password')).code, 'busy');
+    const endingResult = ending === 'logout' ? f.account.signOut() : f.account.dispose();
+    const snapshot = f.account.getState(); held.resolve(jsonResponse(A));
+    assert.equal((await pending).code, 'cancelled'); await endingResult;
+    if (ending === 'logout') assert.equal(f.account.getState().phase, 'signed-out');
+    else assert.deepEqual(f.account.getState(), snapshot);
+    f.account.dispose();
+  }
+});
+
+test('비밀번호 설정 응답이 다른 회원이면 완료로 표시하지 않는다', async () => {
+  const f = fixture(); f.setUser(A); await f.account.start();
+  f.passwordTransport.send = async () => jsonResponse(B);
+  assert.equal((await f.account.setPassword('valid-password')).code, 'account_changed');
+  assert.equal(f.account.getState().user, null); f.account.dispose();
+});
+
+test('실제 SDK 비밀번호 로그인의 늦은 응답은 화면 폐기 후 새 저장 세션을 덮어쓰지 않는다', async () => {
+  const storage = trackedStorage(), entered = deferred(), response = deferred();
+  const account = createSharedAccount({ url: URL, key: KEY, storage, createClient(url, key, options) {
+    return createSupabaseClient(url, key, { ...options, auth: { ...options.auth, autoRefreshToken: false }, global: { async fetch(input, init) {
+      const endpoint = new globalThis.URL(input); assert.equal(endpoint.searchParams.get('grant_type'), 'password');
+      assert.deepEqual(JSON.parse(init.body), { email: A.email, password: 'synthetic-password', gotrue_meta_security: {} });
+      entered.resolve(); return response.promise;
+    } } });
+  } });
+  await account.start(); const pending = account.signInWithPassword(A.email, 'synthetic-password'); await entered.promise;
+  await account.dispose(); const newer = JSON.stringify(sessionFor(B)); storage.setItem('scyl-auth-v1', newer); storage.writes.length = 0;
+  response.resolve(jsonResponse(sessionFor(A))); assert.equal((await pending).code, 'cancelled');
+  assert.equal(storage.getItem('scyl-auth-v1'), newer); assert.deepEqual(storage.writes, []);
+});
+
+test('실제 SDK 비밀번호 요청 중 다른 로그인 저장이 생기면 늦은 저장과 알림을 버리고 최신 계정을 복원한다', async () => {
+  const storage = trackedStorage(), entered = deferred(), response = deferred();
+  const account = createSharedAccount({ url: URL, key: KEY, storage, createClient(url, key, options) {
+    return createSupabaseClient(url, key, { ...options, auth: { ...options.auth, autoRefreshToken: false }, global: { async fetch(input) {
+      const endpoint = new globalThis.URL(input);
+      if (endpoint.pathname === '/auth/v1/token') { entered.resolve(); return response.promise; }
+      if (endpoint.pathname === '/auth/v1/user') return jsonResponse(B);
+      if (endpoint.pathname === '/rest/v1/rpc/get_shared_profile') return jsonResponse(null);
+      throw new Error('Unexpected synthetic endpoint');
+    } } });
+  } });
+  await account.start(); const pending = account.signInWithPassword(A.email, 'synthetic-password'); await entered.promise;
+  const newer = JSON.stringify(sessionFor(B)); storage.setItem('scyl-auth-v1', newer); storage.writes.length = 0;
+  response.resolve(jsonResponse(sessionFor(A))); assert.equal((await pending).code, 'account_changed');
+  assert.equal(storage.getItem('scyl-auth-v1'), newer); assert.deepEqual(storage.writes, []);
+  assert.equal(account.getState().user.id, B.id); await account.dispose();
 });
