@@ -7,6 +7,33 @@ const next = { duration: 100, bpm: 128, beatOffset: .31, confidence: .91 };
 const near = (actual, expected, epsilon = 1e-8) => assert.ok(Math.abs(actual - expected) < epsilon, `${actual} should be near ${expected}`);
 const onGrid = (position, track) => near((position - track.beatOffset) / (60 / track.bpm), Math.round((position - track.beatOffset) / (60 / track.bpm)));
 
+test('percentage overlap starts at 90% of the whole file without tempo or phase adjustment', () => {
+  for (const duration of [32, 180, 300, 720]) {
+    const position = duration * .25;
+    const plan = planMix({ current: { ...current, duration }, next, currentPosition: position, now: 5, overlapRatio: .1 });
+    near(plan.outgoingPosition, duration * .9);
+    near(plan.startTime, 5 + duration * .65);
+    near(plan.endTime, 5 + duration * .75);
+    near(plan.fadeDuration, duration * .1);
+    assert.equal(plan.mode, 'crossfade'); assert.equal(plan.reason, 'percentage-overlap');
+    assert.equal(plan.rate, 1); assert.equal(plan.offset, 0); assert.equal(plan.beatPeriod, null);
+  }
+});
+
+test('percentage overlap retains the outgoing tail when the next file is short or prepared late', () => {
+  const short = planMix({ current, next: { ...next, duration: 2 }, currentPosition: 80, now: 7, overlapRatio: .1 });
+  assert.equal(short.reason, 'incoming-short');
+  near(short.requestedFadeDuration, 12); near(short.fadeDuration, 2);
+  near(short.outgoingPosition, 118); near(short.endTime, 47);
+  const late = planMix({ current, next, currentPosition: 117, now: 7, overlapRatio: .1 });
+  assert.equal(late.reason, 'late-start');
+  near(late.startTime, 7); near(late.fadeDuration, 3); near(late.endTime, 10);
+  near(late.rate, 1); near(late.offset, 0);
+  for (const overlapRatio of [-.1, 1.1, NaN, Infinity]) {
+    assert.throws(() => planMix({ current, next, currentPosition: 0, overlapRatio }), /ratio/);
+  }
+});
+
 test('aligns both sources despite different BPM and beat phase', () => {
   const plan = planMix({ current, next, currentPosition: 90, now: 40, fadeDuration: 8 });
   assert.equal(plan.mode, 'beatmatched');

@@ -17,8 +17,8 @@ return http.createServer(async(req,res)=>{
       const d=await r.json();res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public,max-age=3600'});return res.end(JSON.stringify({title:d.title,author:d.author_name}));
     }
     const requested=decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname);
-    const sourcePattern = /^\/(?:index\.html|privacy\.html|mix-lab\.html|auth\.html|audio-analysis-worker\.js|(?:style|mix-lab|account|theme)\.css|(?:app|privacy|mix-lab|auth)\.mjs|manifest\.webmanifest|assets\/[\w.-]+\.(?:svg|png)|lib\/[\w.-]+\.mjs)$/;
-    const builtPattern = /^\/(?:index\.html|privacy\.html|mix-lab\.html|auth\.html|(?:app|privacy|mix-lab|auth|audio-analysis-worker|audio-render-check)\.js|(?:style|mix-lab|account|theme)\.css|manifest\.webmanifest|assets\/[\w.-]+\.(?:svg|png)|chunks\/[\w-]+\.js)$/;
+    const sourcePattern = /^\/(?:index\.html|privacy\.html|mix-lab\.html|auth\.html|audio-analysis-worker\.js|(?:style|mix-lab|account|theme|apple-music)\.css|(?:app|privacy|mix-lab|auth)\.mjs|manifest\.webmanifest|assets\/[\w.-]+\.(?:svg|png)|lib\/[\w.-]+\.mjs)$/;
+    const builtPattern = /^\/(?:index\.html|privacy\.html|mix-lab\.html|auth\.html|(?:app|privacy|mix-lab|auth|audio-analysis-worker|audio-render-check)\.js|(?:style|mix-lab|account|theme|apple-music)\.css|manifest\.webmanifest|assets\/[\w.-]+\.(?:svg|png)|chunks\/[\w-]+\.js)$/;
     if(!(built ? builtPattern : sourcePattern).test(requested)){res.writeHead(404);return res.end('Not found');}
     const data=await readFile(path.join(staticRoot,!built && requested === '/audio-analysis-worker.js' ? '/audio-analysis-worker.mjs' : requested));
     res.writeHead(200,{'Content-Type':mime[path.extname(requested)]||'application/octet-stream','Referrer-Policy':'strict-origin-when-cross-origin','X-Content-Type-Options':'nosniff','Cache-Control':'no-cache'});res.end(data);

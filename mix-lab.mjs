@@ -7,6 +7,7 @@ import { createWaveformTransport, WAVEFORM_VIEW_SECONDS } from './lib/waveform-t
 import { mountAccount } from './lib/account-ui.mjs';
 
 const $ = id => document.getElementById(id);
+const mixOptions = Object.freeze({ overlapRatio: .1, beatmatch: false });
 let context, engine, tracks = [], fileQueue = [], queueIndex = 0;
 let sourceMode = 'none', busy = false, selectedFx = 0, lastStatus = '';
 let generation = 0, playbackIntent = 0, loadingNext = false, wantsPlayback = false, loading = new AbortController();
@@ -86,7 +87,7 @@ function createEngine() {
     onError(error) { message('재생 오류: ' + error.message); },
   });
   engine.setTracks(tracks);
-  engine.prepare({ fadeDuration: 8 });
+  engine.prepare(mixOptions);
 }
 async function decode(entry, token) {
   const result = await loadAudioFile(entry.file, { context: getContext(), id: entry.id, title: entry.title, signal: loading.signal });
@@ -114,7 +115,7 @@ async function attachNext(token, targetEngine) {
       const beginNext = () => {
         pendingTracks = [next]; engine.setTracks(pendingTracks); tracks = pendingTracks;
         queueIndex = fileQueue.findIndex(item => item.id === entry.id);
-        if (wantsPlayback && playbackLifecycle.canPlay()) engine.play({ fadeDuration: 8 });
+        if (wantsPlayback && playbackLifecycle.canPlay()) engine.play(mixOptions);
         else { $('pause').disabled = true; $('stop').disabled = true; }
         renderTracks();
       };
@@ -122,7 +123,7 @@ async function attachNext(token, targetEngine) {
         const currentState = engine.snapshot().state;
         if (currentState === 'ended') { beginNext(); continue; }
         if (currentState === 'playing' || currentState === 'paused') {
-          try { engine.queueNext(next, { fadeDuration: 8 }); }
+          try { engine.queueNext(next, mixOptions); }
           catch (error) {
             // The context clock can pass the end between snapshot and scheduling.
             if (engine.snapshot().state !== 'ended') throw error;
@@ -149,7 +150,7 @@ $('audio-files').addEventListener('change', async event => {
   if (files.length > 100) { message('한 번에 최대 100곡까지 선택할 수 있습니다.'); return; }
   const token = resetSession('files'); busy = true;
   fileQueue = files.map(file => ({ id: crypto.randomUUID(), title: file.name.replace(/\.[^.]+$/, '') || file.name, file }));
-  $('source-note').textContent = '파일 음원 자동 믹싱 · 음원과 분석 데이터는 이 기기에서만 처리합니다.';
+  $('source-note').textContent = '파일 음원 10% 겹침 재생 · 속도는 그대로, 음원과 분석 데이터는 이 기기에서만 처리합니다.';
   try {
     getContext();
     for (let index = 0; index < fileQueue.length && tracks.length < 2;) {
@@ -162,7 +163,7 @@ $('audio-files').addEventListener('change', async event => {
     }
     if (!tracks.length) { message('재생할 수 있는 음악 파일을 찾지 못했습니다. MP3 또는 WAV 파일을 선택해 주세요.'); return; }
     createEngine(); $('demo-play').disabled = false;
-    message(`${fileQueue.length}곡을 담았습니다. 재생을 누르면 자동으로 이어집니다.`); renderTracks();
+    message(`${fileQueue.length}곡을 담았습니다. 현재 곡의 마지막 10%에서 다음 곡을 겹쳐 재생합니다.`); renderTracks();
   } catch (error) { if (generation === token) message(error.message); }
   finally { if (generation === token) busy = false; }
 });
@@ -181,9 +182,9 @@ $('demo-load').addEventListener('click', async () => {
     tracks = [makeDemoTrack({ bpm: 120, phase: .08 }, 'demo-a', '합성 데모 · 120 BPM'), makeDemoTrack({ bpm: 126, phase: .13, voice: 1 }, 'demo-b', '합성 데모 · 126 BPM')];
     fileQueue = tracks.map(({ id, title }) => ({ id, title }));
     $('source-note').textContent = '직접 합성한 두 음원으로 믹싱을 확인하는 데모입니다. YouTube 음원이 아닙니다.';
-    createEngine(); engine.seek(20); engine.resume(); wantsPlayback = true; playbackStarted = true;
+    createEngine(); engine.seek(Math.max(0, tracks[0].buffer.duration * (1 - mixOptions.overlapRatio) - 3)); engine.resume(); wantsPlayback = true; playbackStarted = true;
     $('demo-play').disabled = false; $('demo-play').textContent = '데모 다시 듣기'; $('pause').disabled = false; $('stop').disabled = false;
-    message('전환 직전부터 재생합니다. 앞 곡이 끝나기 전에 두 곡의 비트가 겹칩니다.'); renderTracks();
+    message('전환 3초 전부터 재생합니다. 마지막 10% 구간에서 속도를 바꾸지 않고 두 곡을 겹칩니다.'); renderTracks();
   } catch (error) { if (token === generation) message(error.message); }
   finally { if (token === generation) busy = false; }
 });
@@ -197,12 +198,12 @@ $('demo-play').addEventListener('click', async () => {
     if (token !== generation || targetEngine !== engine || intent !== playbackIntent || !playbackLifecycle.canRequestPlayback()) return;
     if (context.state !== 'running') throw new Error('오디오를 시작하지 못했습니다. 재생 버튼을 다시 눌러 주세요.');
     if (targetEngine.snapshot().state !== 'paused') {
-      targetEngine.prepare({ fadeDuration: 8 });
-      if (sourceMode === 'demo') targetEngine.seek(20);
+      targetEngine.prepare(mixOptions);
+      if (sourceMode === 'demo') targetEngine.seek(Math.max(0, tracks[0].buffer.duration * (1 - mixOptions.overlapRatio) - 3));
     }
     targetEngine.resume(); wantsPlayback = true; playbackStarted = true;
     $('pause').disabled = false; $('stop').disabled = false; $('pause').textContent = '일시정지';
-    $('demo-play').textContent = sourceMode === 'demo' ? '데모 다시 듣기' : '현재 곡 처음부터'; message('재생 중 · 다음 곡은 곡이 끝나기 전에 들어옵니다.');
+    $('demo-play').textContent = sourceMode === 'demo' ? '데모 다시 듣기' : '현재 곡 처음부터'; message('재생 중 · 현재 곡의 마지막 10%에서 다음 곡을 겹쳐 재생합니다.');
   } catch (error) { if (token === generation && targetEngine === engine && intent === playbackIntent) message(error.message); }
 });
 $('pause').addEventListener('click', async () => {
@@ -243,7 +244,7 @@ waveTransport = createWaveformTransport({
   element: canvas, getEngine: () => engine,
   getIdentity: () => `${generation}:${tracks.map(track => track.id).join('|')}`,
   canSeek: () => accountGate.canUse() && !busy && playbackLifecycle.canRequestPlayback(),
-  prepare: target => target.prepare({ fadeDuration: 8 }),
+  prepare: target => target.prepare(mixOptions),
   onBegin() { playbackIntent++; wantsPlayback = false; },
   onChange({ seeking, cancelled, snapshot }) {
     if (!snapshot) return;
@@ -355,10 +356,13 @@ function frame() {
     const two = snapshot.decks.filter(deck => deck.started && !deck.ended && deck.gain > .005).length === 2;
     if (waveTransport.isSeeking()) $('mix-state').textContent = '위치 이동 중';
     else if (snapshot.state === 'paused') $('mix-state').textContent = playbackStarted ? '일시정지' : snapshot.position > 0 ? '위치 선택' : '재생 준비';
-    else if (two) $('mix-state').textContent = snapshot.plan?.mode === 'beatmatched' ? '비트매칭 · 2곡 재생' : '크로스페이드 · 2곡 재생';
+    else if (two) $('mix-state').textContent = '겹침 · 2곡 재생';
     else if (snapshot.state === 'playing' && snapshot.plan && snapshot.contextTime < snapshot.plan.startTime) $('mix-state').textContent = `${Math.max(0, snapshot.plan.startTime - snapshot.contextTime).toFixed(1)}초 후 전환`;
     else $('mix-state').textContent = snapshot.state === 'playing' ? '재생 중' : snapshot.state === 'ended' ? '완료' : '정지';
-    $('wave-detail').textContent = snapshot.plan?.mode === 'beatmatched' ? `두 곡의 흐름 · 다음 곡 속도 ${(snapshot.plan.rate * 100).toFixed(1)}% · 같은 박자에 시작` : '두 곡의 흐름 · 표시된 전환 구간에서 소리가 겹칩니다';
+    const plan = snapshot.plan;
+    $('wave-detail').textContent = plan
+      ? `마지막 10% · ${plan.fadeDuration.toFixed(1)}초 겹침 · 원래 속도${plan.reason === 'incoming-short' ? ' (짧은 다음 곡에 맞춤)' : plan.reason === 'late-start' ? ' (남은 구간에 맞춤)' : ''}`
+      : '현재 곡의 마지막 10%에서 다음 곡을 겹쳐 재생합니다. 속도는 바꾸지 않습니다.';
   }
   requestAnimationFrame(frame);
 }

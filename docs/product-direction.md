@@ -2,7 +2,7 @@
 
 **SCYL — Songs Change Your Life.**
 
-SCYL is intended to make a personal set feel connected from one song to the next. Version 0.3 provides two source modes: YouTube links for official-player listening sets, and local audio files for direct audio processing. The interface is portrait, with two large circular dials stacked vertically.
+SCYL is intended for building personal music playlists, with the user's requested direction being multiple YouTube playlists. The current YouTube implementation still stores one local set; multiple named playlists and YouTube-account synchronization are not implemented. Music links now offer YouTube and Apple Music; local files provide direct audio processing. The interface preserves the portrait dials and shared gray/orange design.
 
 ## Web and installed apps
 
@@ -36,14 +36,22 @@ The listener can select up to 100 local files, each no larger than 60 MiB or lon
 | Area | YouTube mode | Local-file mode |
 | --- | --- | --- |
 | Track transition | Fade out, stop, then start the next player where volume control works | Scheduled overlap with equal-power fades |
-| Beat alignment | Not supported | Align estimated beat grids when confidence and tempo-ratio checks pass |
+| Beat alignment | Not supported | Default 10% overlap keeps both playback rates at 1.0; it does not align different tempos |
 | FX | Source-support information only | Low-pass filter and echo |
 | Waveform | No audio-analysis display | PCM-derived curves; drag left/right to seek both tracks on their shared timeline |
 | Retention | Set and preferences restored from local storage | Files, file queue, and analysis are not persisted |
 
 Selected files and their analysis are not uploaded. Reloading requires selecting files again. An optional synthesized demo provides two original tracks for trying the engine without importing a file. Neither path extracts or processes YouTube audio.
 
-Tempo correction currently uses playback rate, which changes pitch as well as speed. Pitch-preserving time-stretching is not implemented. Beat positions and BPM are estimates, not guarantees for every recording; uncertain grids or unsuitable tempo ratios use an ordinary crossfade. Unsupported formats or slow decoding can interrupt a set, and real-device behavior still needs verification.
+As requested on 2026-11-26, the next file starts when 90% of the current track has elapsed. The final 10% uses equal-power overlapping playback with both rates fixed at 1.0. A three-minute track overlaps for 18 seconds, starting at 2:42. If the next track is shorter or becomes ready late, the overlap is limited to available audio. Legacy beatmatching remains an engine capability, but the file screen's default no longer changes tempo or pitch. Unsupported formats or slow decoding can interrupt a set; offline rendering, browser playback, and physical-device testing remain distinct checks.
+
+## Apple Music links
+
+Paste an Apple Music song, album, or playlist share link in the Apple Music source panel to load Apple's official embedded player. Links exist only in this page's memory and are cleared on account lock; there is no separate profile store. No Apple request starts until the user explicitly imports or opens a link. Changing source, locking the account, or leaving the foreground removes the frame to stop playback.
+
+Apple handles subscriber sign-in and full playback; unsigned-in listeners receive previews according to Apple's rules. This integration does not read the personal Apple Music library, download audio, provide waveform analysis, or enable beatmatching. Library access requires separately configured MusicKit developer credentials. Apple's approved DJ integrations are distinct from ordinary MusicKit web playback and are not implemented in SCYL.
+
+References: [Apple's embed guidance](https://artists.apple.com/support/1117-apple-music-marketing-tools), [MusicKit v3 HTML embeds](https://js-cdn.music.apple.com/musickit/v3/docs/index.html?path=/docs/html-embeds--html-embeds), [approved DJ integrations](https://music.apple.com/gb/curator/dj-with-apple-music/1798261090).
 
 ## Before a wider release
 

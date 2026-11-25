@@ -1,0 +1,35 @@
+.music-source-picker{display:flex;gap:8px;margin:0 0 24px}
+.music-source-picker button{flex:1;min-height:44px;padding:10px 8px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--ink);font:inherit;font-size:14px;cursor:pointer}
+.music-source-picker button[aria-pressed=true]{border-color:var(--accent);background:var(--surface)}
+.music-source-picker button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+#youtube-content[hidden]{display:none}
+.apple-music-panel{font-family:var(--font-ui);color:var(--ink);padding:4px 0 20px;min-width:0}
+.apple-music-panel[hidden]{display:none}
+.apple-music-heading>span{font-size:14px;letter-spacing:.12em;color:var(--muted)}
+.apple-music-heading h1{font-size:26px;font-weight:500;line-height:1.3;margin:14px 0 24px;letter-spacing:-.035em}
+.apple-music-form{display:grid;gap:12px}
+.apple-music-form label{font-size:16px}
+.apple-music-form input{display:block;width:100%;box-sizing:border-box;min-width:0;padding:14px 12px;border:1px solid var(--line);border-radius:8px;color:var(--ink);background:var(--surface);font:inherit;font-size:16px}
+.apple-music-panel button,.apple-music-panel a{font-family:inherit}
+.apple-music-panel button{cursor:pointer;font-size:14px;min-height:44px}
+.apple-music-panel :is(button,input,a):focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.apple-music-form p,.apple-music-note{font-size:14px;line-height:1.65;color:var(--muted);margin:0}
+.apple-music-form .apple-music-import{background:var(--ink);color:var(--on-ink);border:1px solid var(--ink);border-radius:8px;padding:12px;width:100%;font-size:16px}
+.apple-music-status{font-size:14px;line-height:1.6;margin:18px 0;overflow-wrap:anywhere}
+.apple-music-status.error{color:var(--danger)}
+.apple-music-current{margin:22px 0;padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.apple-music-current-heading{display:flex;align-items:center;gap:12px;justify-content:space-between;margin-bottom:12px}
+.apple-music-panel h2{font-size:16px;font-weight:500;line-height:1.5;margin:0;overflow-wrap:anywhere}
+.apple-music-stop,.apple-music-remove{background:transparent;color:var(--muted);border:0;padding:8px;flex-shrink:0}
+.apple-music-player{max-width:660px;width:100%}
+.apple-music-player iframe{display:block;width:100%;border:0;border-radius:10px;overflow:hidden;background:var(--surface)}
+.apple-music-original{display:inline-block;color:var(--ink);font-size:14px;text-underline-offset:4px;margin-top:14px;padding:4px 0;overflow-wrap:anywhere}
+.apple-music-reopen{width:100%;border:1px solid var(--line);border-radius:8px;color:var(--ink);background:var(--surface);padding:12px}
+.apple-music-collection{margin:24px 0}
+.apple-music-collection ol{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}
+.apple-music-collection li{display:flex;gap:4px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:3px}
+.apple-music-item{flex:1;min-width:0;text-align:left;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--ink);padding:9px;display:grid;gap:5px;overflow-wrap:anywhere}
+.apple-music-item[aria-pressed=true]{border-color:var(--accent);background:var(--surface)}
+.apple-music-kind{font-size:14px;color:var(--muted)}
+.apple-music-note{margin-top:16px}
+@media(max-width:500px){.apple-music-heading h1{font-size:24px}.apple-music-current-heading{align-items:flex-start}.apple-music-current-heading h2{padding-top:10px}}

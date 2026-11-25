@@ -54,6 +54,84 @@ function setup(options = {}) {
   return { context, engine };
 }
 const near = (actual, expected, tolerance = 1e-8) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected}`);
+const tenPercent = Object.freeze({ overlapRatio: .1, beatmatch: false });
+
+test('10% mode schedules two original-speed sources and an equal-power 18-second overlap for a 3-minute file', () => {
+  const context = fakeContext(), engine = createAudioMixEngine({ context, scheduleAhead: 0 });
+  engine.setTracks([track('A', 120, 180), track('B', 126, 120)]);
+  const started = engine.play(tenPercent);
+  near(started.plan.outgoingPosition, 162); near(started.plan.fadeDuration, 18);
+  assert.deepEqual(context.sources[0].starts, [{ time: 10, offset: 0 }]);
+  assert.deepEqual(context.sources[1].starts, [{ time: 172, offset: 0 }]);
+  assert.ok(context.sources.every(source => source.playbackRate.value === 1));
+  const curves = context.gains.flatMap(node => node.gain.events.filter(event => event.type === 'curve'));
+  assert.equal(curves.length, 2);
+  assert.ok(curves.every(curve => curve.time === 172 && curve.duration === 18));
+  near(curves[0].values[64] ** 2 + curves[1].values[64] ** 2, 1, 1e-6);
+  context.currentTime = 181;
+  const before = engine.snapshot();
+  near(before.decks[0].position, 171); near(before.decks[1].position, 9);
+  before.decks.forEach(deck => near(deck.gain, Math.SQRT1_2));
+  engine.pause(); context.currentTime = 300;
+  const resumed = engine.resume();
+  resumed.decks.forEach((deck, index) => {
+    near(deck.position, before.decks[index].position); near(deck.rate, 1);
+    near(deck.gain, Math.SQRT1_2);
+    near(context.sources[index + 2].starts[0].offset, before.decks[index].position);
+  });
+  near(context.sources[2].stops[0], 309);
+  engine.pause(); const preview = engine.seek(160);
+  assert.equal(preview.decks[1].started, false);
+  context.currentTime = 400; engine.resume();
+  assert.deepEqual(context.sources.at(-1).starts, [{ time: 402, offset: 0 }]);
+  engine.dispose();
+});
+
+test('10% queue promotion retains the live source and uses each new current file full duration', () => {
+  const context = fakeContext(), engine = createAudioMixEngine({ context, scheduleAhead: 0 });
+  engine.setTracks([track('A', 120, 180), track('B', 126, 120)]); engine.play(tenPercent);
+  const retained = context.sources[1], priorStops = retained.stops.length;
+  context.currentTime = 190;
+  const promoted = engine.queueNext(null);
+  near(promoted.decks[0].position, 18); near(promoted.decks[0].rate, 1);
+  assert.equal(retained.starts.length, 1); assert.equal(retained.stops.length, priorStops);
+  context.currentTime = 195;
+  const queued = engine.queueNext(track('C', 80, 90), tenPercent);
+  near(queued.plan.outgoingPosition, 108); near(queued.plan.fadeDuration, 12);
+  near(queued.plan.startTime, 280); near(queued.plan.endTime, 292);
+  assert.deepEqual(context.sources[2].starts, [{ time: 280, offset: 0 }]);
+  near(context.sources[2].playbackRate.value, 1);
+  assert.equal(retained.starts.length, 1); assert.equal(retained.disconnected, false);
+  engine.dispose();
+});
+
+test('10% mode handles a late queued file and a very short next file without overrunning the outgoing source', () => {
+  const context = fakeContext(), engine = createAudioMixEngine({ context, scheduleAhead: 0 });
+  engine.setTracks([track('A', 120, 180)]); engine.play({ ...tenPercent, offset: 170 });
+  context.currentTime = 12;
+  const late = engine.queueNext(track('B', 126, 120), tenPercent);
+  assert.equal(late.plan.reason, 'late-start'); near(late.plan.fadeDuration, 8);
+  near(late.plan.startTime, 12); near(late.plan.endTime, 20);
+  near(context.sources[0].stops.at(-1), 20); near(context.sources[1].playbackRate.value, 1);
+  engine.setTracks([track('C', 120, 180), track('D', 126, 2)]);
+  const short = engine.play(tenPercent);
+  assert.equal(short.plan.reason, 'incoming-short'); near(short.plan.fadeDuration, 2);
+  near(short.plan.outgoingPosition, 178); near(short.plan.endTime, 192);
+  context.currentTime = 192;
+  const promoted = engine.queueNext(null);
+  assert.equal(promoted.state, 'ended'); near(promoted.decks[0].position, 2);
+  engine.setTracks([track('E')]); assert.equal(engine.play(tenPercent).state, 'playing');
+  engine.dispose();
+});
+
+test('invalid overlap ratios do not disrupt a playing pair', () => {
+  const { context, engine } = setup();
+  assert.throws(() => engine.prepare({ overlapRatio: NaN }), /ratio/);
+  assert.throws(() => engine.queueNext(track('C'), { overlapRatio: 2 }), /ratio/);
+  assert.equal(engine.snapshot().state, 'playing');
+  assert.ok(context.sources.every(source => !source.disconnected));
+  engine.dispose();
+});
 
 test('schedules actual simultaneous sources, playback rate and equal-power gain curves', () => {
   const { context, engine } = setup();
