@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mountAuthPage } from '../lib/auth-page.mjs';
+import { beginPasswordSetup, readPasswordSetup } from '../lib/account-continuation.mjs';
 
 const base = 'https://scyl.example.test/auth.html';
 const link = label => `${base}#access_token=synthetic-access-${label}&refresh_token=synthetic-refresh-${label}&sb=&type=magiclink`;
 
-function setup(initial = base) {
+function setup(initial = base, extra = {}) {
   let href = initial;
   const order = [], calls = { entries: [], callbacks: [], completed: 0 }, nodes = [];
   const window = new EventTarget();
@@ -36,7 +37,7 @@ function setup(initial = base) {
     document.nativeVisible = options.callback.kind === 'native';
     return result;
   }
-  const page = mountAuthPage({ window, document, config: {}, mountAccount, showCallback,
+  const page = mountAuthPage({ window, document, config: {}, mountAccount, showCallback, readSetup: () => null, ...extra,
     createClient() { throw new Error('실제 인증 요청 금지'); }, onComplete() { calls.completed++; } });
   const emit = (type, extra = {}) => {
     const event = new Event(type); Object.assign(event, extra); window.dispatchEvent(event);
@@ -123,4 +124,39 @@ test('네이티브 복귀 안내가 웹 콜백으로 바뀌면 이전 링크와 
   assert.equal(h.document.nativeVisible, true); h.navigate(link('web'));
   assert.equal(h.document.nativeVisible, false); assert.equal(h.document.actions, 1);
   assert.equal(h.calls.callbacks[0].disposed, true); assert.equal(h.calls.callbacks[1].options.callback.kind, 'email'); h.page.dispose();
+});
+
+test('정리된 인증 주소를 새로 열면 남은 비밀번호 단계와 확인 대상 UUID를 복원한다', () => {
+  const values = new Map(), storage = { getItem: key => values.get(key) ?? null,
+    setItem(key, value) { values.set(key, value); }, removeItem(key) { values.delete(key); } };
+  const now = () => 1_800_000_000_000;
+  const user = { id: '00000000-0000-4000-8000-000000000001', email: 'one@example.test' };
+  const first = setup(link('reload'));
+  beginPasswordSetup(user, { storage, now });
+  first.calls.callbacks[0].options.onComplete({ passwordSetup: true, expectedUserId: user.id });
+  first.page.dispose();
+  const restored = setup(base, { readSetup: () => readPasswordSetup({ storage, now }) });
+  assert.equal(restored.calls.entries[0].options.passwordSetup, true);
+  assert.equal(restored.calls.entries[0].options.expectedUserId, user.id);
+  assert.equal(restored.calls.completed, 0, '단계 기록만으로 로그인 완료 처리하지 않는다');
+  restored.calls.entries[0].options.onSignedIn();
+  assert.equal(restored.calls.completed, 1); restored.page.dispose();
+});
+
+test('만료된 복원 기록은 일반 진입에 비밀번호 단계나 계정 제한을 남기지 않는다', () => {
+  const values = new Map(), storage = { getItem: key => values.get(key) ?? null,
+    setItem(key, value) { values.set(key, value); }, removeItem(key) { values.delete(key); } };
+  const now = 1_800_000_000_000;
+  beginPasswordSetup({ id: '00000000-0000-4000-8000-000000000001', email: 'one@example.test' }, { storage, now: () => now });
+  const h = setup(base, { readSetup: () => readPasswordSetup({ storage, now: () => now + 3_600_000 }) });
+  assert.equal(h.calls.entries[0].options.passwordSetup, false);
+  assert.equal(h.calls.entries[0].options.expectedUserId, null);
+  assert.equal(h.calls.completed, 0); assert.equal(values.size, 0); h.page.dispose();
+});
+
+test('새 메일의 명시 승인에는 이전 복원 기록을 섞지 않는다', () => {
+  const h = setup(link('new'), { readSetup() { throw new Error('새 콜백은 과거 단계 기록을 사용하면 안 된다'); } });
+  h.calls.callbacks[0].options.onComplete({ passwordSetup: true, expectedUserId: 'new-verified-user' });
+  assert.equal(h.calls.entries[0].options.expectedUserId, 'new-verified-user');
+  assert.equal(h.calls.entries[0].options.passwordSetup, true); assert.equal(h.calls.completed, 0); h.page.dispose();
 });
