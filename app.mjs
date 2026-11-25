@@ -2,7 +2,6 @@ import { parseYouTubeUrl, formatTime } from './lib/youtube.mjs';
 import { TRANSITION_MODES, gainForFade, shouldStartTransition } from './lib/transition.mjs';
 import { createNativeLifecycleController } from './lib/native-lifecycle.mjs';
 import { mountAccount } from './lib/account-ui.mjs';
-import { mountAppleMusicPanel } from './lib/apple-music-panel.mjs';
 
 const $ = (id) => document.getElementById(id);
 const STORAGE_KEY = 'scyl.session.v1';
@@ -22,9 +21,8 @@ const nativePlatform = Boolean(window.Capacitor?.isNativePlatform?.());
 let nativeReady = !nativePlatform, nativeActive = !nativePlatform, nativeStateFailed = false;
 let nativeLifecycle = null;
 let accountGate;
-let musicSource = 'youtube', appleMusicPanel;
 const canUseMusic = () => accountGate?.canUse() && !document.hidden && nativeReady && nativeActive && !document.querySelector('dialog[open]');
-const playbackAllowed = () => musicSource === 'youtube' && canUseMusic();
+const playbackAllowed = () => canUseMusic();
 const modes = TRANSITION_MODES;
 const keyFor = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const trackFor = key => queue.find(track => track.key === key);
@@ -52,7 +50,6 @@ function closeSheets() {
 function openSheet(id, { focusInput = false } = {}) {
   const dialog = $(id);
   if (!dialog) return false;
-  appleMusicPanel?.suspend();
   // A sheet must not obscure a playing YouTube video. Returning never auto-resumes.
   if (switching || slots.some(slot => [PLAYING, BUFFERING].includes(playerState(slot)))) pausePlayback('플레이어로 돌아와 재생을 눌러 주세요.');
   closeSheets(); dialog.showModal();
@@ -138,7 +135,6 @@ function recoverBlockedPlayback(slot) {
   slot.player.cueVideoById({ videoId: track.id, startSeconds });
 }
 function pausePlayback(message = '일시정지') {
-  appleMusicPanel?.suspend();
   cancelJog();
   generation++; switching = false; slots.forEach(pauseSlot); cancelFade({ restoreGain: false }); playing = false;
   setStatus(message); renderPlayback();
@@ -238,10 +234,6 @@ function advance({ fadeIn = true } = {}) {
   else { cancelFade(); playing = false; setStatus('세트 재생 완료'); renderPlayback(); }
 }
 function onState(slot, state) {
-  if (musicSource !== 'youtube') {
-    if (state === PLAYING || state === BUFFERING) pauseSlot(slot);
-    return;
-  }
   // A delayed PLAYING event can arrive after the page was hidden and paused.
   // Never let that event revive either source in the background.
   if (state === PLAYING && !playbackAllowed()) {
@@ -630,7 +622,6 @@ $('export').addEventListener('click', async () => {
   finally { exporting = false; $('export').disabled = queue.length === 0; }
 });
 document.addEventListener('keydown', event => {
-  if (musicSource !== 'youtube') return;
   if (event.code !== 'Space' || event.target.closest('input,textarea,button,dialog,a,[contenteditable=true]')) return;
   event.preventDefault(); if (!$('play').disabled) $('play').click();
 });
@@ -739,28 +730,7 @@ function connectYouTube({ retry = false } = {}) {
 }
 $('connect-youtube').addEventListener('click', connectYouTube);
 $('retry-youtube').addEventListener('click', () => connectYouTube({ retry: true }));
-function selectMusicSource(source) {
-  pausePlayback('음원 선택을 바꿨습니다. 재생을 눌러 시작하세요.');
-  musicSource = source;
-  $('youtube-content').hidden = source !== 'youtube';
-  $('apple-music-section').hidden = source !== 'apple';
-  $('source-youtube').setAttribute('aria-pressed', String(source === 'youtube'));
-  $('source-apple').setAttribute('aria-pressed', String(source === 'apple'));
-  if (source === 'apple') appleMusicPanel.activate();
-  renderPlayback();
-}
-appleMusicPanel = mountAppleMusicPanel({
-  root: $('apple-music-section'),
-  canUse: () => musicSource === 'apple' && canUseMusic(),
-  onActivate: () => pausePlayback('Apple Music에서 재생합니다.'),
-});
-$('source-youtube').addEventListener('click', () => selectMusicSource('youtube'));
-$('source-apple').addEventListener('click', () => selectMusicSource('apple'));
-accountGate = mountAccount({ onLock() { pausePlayback('계정 인증 후 재생할 수 있습니다.'); appleMusicPanel?.clear(); } });
-// Account dialogs are opened by the shared account component, outside openSheet.
-new MutationObserver(() => {
-  if (document.querySelector('dialog[open]')) appleMusicPanel.suspend();
-}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
+accountGate = mountAccount({ onLock() { pausePlayback('계정 인증 후 재생할 수 있습니다.'); } });
 if (youtubeConsent) connectYouTube();
 else setStatus('YouTube 연결 동의 후 재생할 수 있어요');
 setInterval(tick, 100);

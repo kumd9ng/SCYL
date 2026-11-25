@@ -5,6 +5,7 @@ import { loadAudioFile } from './lib/audio-files.mjs';
 import { createFilePlaybackLifecycle } from './lib/file-playback-lifecycle.mjs';
 import { createWaveformTransport, WAVEFORM_VIEW_SECONDS } from './lib/waveform-transport.mjs';
 import { mountAccount } from './lib/account-ui.mjs';
+import { mountAppleMusicPanel } from './lib/apple-music-panel.mjs';
 
 const $ = id => document.getElementById(id);
 const mixOptions = Object.freeze({ overlapRatio: .1, beatmatch: false });
@@ -13,11 +14,13 @@ let sourceMode = 'none', busy = false, selectedFx = 0, lastStatus = '';
 let generation = 0, playbackIntent = 0, loadingNext = false, wantsPlayback = false, loading = new AbortController();
 let waveTransport = null;
 let playbackStarted = false;
-const accountGate = mountAccount({ onLock() { waveTransport?.cancel(); playbackIntent++; wantsPlayback = false; engine?.pause(); } });
+let appleMusicPanel;
+const accountGate = mountAccount({ onLock() { waveTransport?.cancel(); playbackIntent++; wantsPlayback = false; engine?.pause(); appleMusicPanel?.clear(); } });
 const format = seconds => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds) % 60)).padStart(2, '0')}`;
 function message(text) { if (text !== lastStatus) { $('engine-message').textContent = text; lastStatus = text; } }
 const playbackLifecycle = createFilePlaybackLifecycle({
   onInterrupt(reason) {
+    appleMusicPanel?.suspend();
     waveTransport?.cancel();
     playbackIntent++; wantsPlayback = false;
     if (!engine) return;
@@ -33,13 +36,25 @@ const playbackLifecycle = createFilePlaybackLifecycle({
 });
 function allowPlaybackRequest() {
   if (!accountGate.require()) return false;
-  if (playbackLifecycle.canRequestPlayback()) return true;
+  if (playbackLifecycle.canRequestPlayback()) { appleMusicPanel?.suspend(); return true; }
   const state = playbackLifecycle.getState();
   message(state.failed || state.contextState === 'closed'
     ? '재생을 준비하지 못했습니다. 앱이나 페이지를 다시 열어 주세요.'
     : '앱이 화면에 표시되고 준비된 뒤 재생을 눌러 주세요.');
   return false;
 }
+appleMusicPanel = mountAppleMusicPanel({
+  root: $('apple-music-section'),
+  canUse: () => accountGate.canUse() && playbackLifecycle.canRequestPlayback() && !document.querySelector('dialog[open]'),
+  onActivate() {
+    waveTransport?.cancel(); playbackIntent++; wantsPlayback = false; engine?.pause();
+    if (engine) { $('pause').textContent = '이어 듣기'; $('demo-play').textContent = '이 위치에서 재생'; }
+  },
+});
+appleMusicPanel.activate();
+new MutationObserver(() => {
+  if (document.querySelector('dialog[open]')) appleMusicPanel.suspend();
+}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
 function getContext() {
   const Audio = window.AudioContext || window.webkitAudioContext;
   if (!Audio) throw new Error('이 브라우저는 Web Audio를 지원하지 않습니다.');

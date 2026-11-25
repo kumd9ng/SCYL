@@ -4,10 +4,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { readAccountBuildConfig } from './account-config.mjs';
+import { readAppleMusicBuildConfig } from './apple-music-config.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const out = path.join(root, 'www');
 const accountConfig = await readAccountBuildConfig(new URL('..', import.meta.url));
+const appleMusicConfig = await readAppleMusicBuildConfig(new URL('..', import.meta.url));
 const config = JSON.parse(await readFile(path.join(root, 'capacitor.config.json'), 'utf8'));
 if (config.webDir !== 'www' || path.dirname(out) !== root || path.basename(out) !== 'www') {
   throw new Error('Refusing to package outside the project-owned www directory.');
@@ -38,7 +40,7 @@ const compiled = await build({
   bundle: true, splitting: true, format: 'esm', platform: 'browser',
   target: ['safari15.4', 'chrome90'], chunkNames: 'chunks/[name]-[hash]',
   write: false, metafile: true, sourcemap: false, logLevel: 'warning',
-  define: { __SCYL_ACCOUNT_CONFIG__: JSON.stringify(accountConfig) },
+  define: { __SCYL_ACCOUNT_CONFIG__: JSON.stringify(accountConfig), __SCYL_APPLE_MUSIC_CONFIG__: JSON.stringify(appleMusicConfig) },
 });
 for (const output of compiled.outputFiles) {
   const relative = path.relative(out, path.resolve(output.path));

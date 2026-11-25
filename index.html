@@ -5,7 +5,7 @@
 <meta name="description" content="SCYL — Songs Change Your Life. YouTube 링크로 만드는 나만의 음악 세트. 위아래 두 개의 다이얼로 이어 듣는 세로형 플레이어.">
 <title>SCYL — Songs Change Your Life.</title>
 <link rel="icon" href="assets/scyl-mark.svg" type="image/svg+xml"><link rel="stylesheet" href="style.css"><link rel="manifest" href="manifest.webmanifest">
-<link rel="stylesheet" href="account.css"><link rel="stylesheet" href="apple-music.css"></head>
+<link rel="stylesheet" href="account.css"></head>
 <body>
 <svg class="svg-definitions" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
 <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><path d="M3 6h.1M3 12h.1M3 18h.1" stroke-width="3"/></symbol>
@@ -19,10 +19,7 @@
 <main class="player-device" aria-label="SCYL 세로형 음악 플레이어">
 <header class="device-header"><a href="./" class="brand" aria-label="SCYL 홈"><img src="assets/scyl-mark.svg" alt=""><span>SCYL<span class="brand-period">.</span></span></a><span class="device-subtitle">SONGS CHANGE<br>YOUR LIFE.</span><button id="help-button" class="round-button help-button" aria-label="SCYL 사용 안내">i</button></header>
 <div class="speaker-grille" aria-hidden="true"></div>
-<nav class="source-mode" aria-label="음원 선택"><span aria-current="page">음악 링크</span><a href="mix-lab.html">파일로 자동 믹싱</a></nav>
-<div class="music-source-picker" role="group" aria-label="음악 서비스"><button id="source-youtube" type="button" aria-pressed="true" aria-controls="youtube-content">YouTube</button><button id="source-apple" type="button" aria-pressed="false" aria-controls="apple-music-section">Apple Music</button></div>
-<section id="apple-music-section" aria-label="Apple Music 링크 가져오기" hidden></section>
-<div id="youtube-content">
+<nav class="source-mode" aria-label="음원 선택"><span aria-current="page">YouTube 듣기</span><a href="mix-lab.html">자동 믹싱</a></nav>
 <section class="source-section" id="source-section" aria-label="YouTube 원본 영상" hidden>
 <div class="source-heading"><span>ORIGINAL ON YOUTUBE</span><span>원본 플레이어</span></div><div class="players">
 <div class="source-card" data-source="0"><span id="source-label-0" class="source-label">영상 대기</span><p id="source-help-0" class="source-help" role="status" hidden></p><button id="source-retry-0" class="primary source-retry" type="button" aria-describedby="source-help-0" hidden>재생 화면 다시 열기</button><div class="player-shell"><div id="youtube-0"></div></div><a id="source-open-0" class="source-open" target="_blank" rel="noopener" hidden>YouTube에서 원본 열기</a></div>
@@ -42,7 +39,6 @@
 </section>
 <div class="playback-guidance"><p id="engine-status" role="status">Songs Change Your Life.</p><p id="playback-hint" class="sr-only" role="status"></p><button id="retry-youtube" class="text-button" hidden>YouTube 연결 다시 시도</button></div>
 <nav class="device-nav artwork-transport" aria-label="플레이어 메뉴"><button data-open-queue class="nav-button" aria-label="재생목록 열기"><svg><use href="#i-list"/></svg><span id="queue-count">00</span></button><button id="previous" class="transport-step" aria-label="이전 곡"><svg><use href="#i-prev"/></svg></button><button id="play" class="transport-play" aria-label="재생" aria-describedby="playback-hint">▶</button><button id="next" class="transport-step" aria-label="다음 곡"><svg><use href="#i-next"/></svg></button><button data-open-queue="add" class="transport-step add-link" aria-label="YouTube 링크로 곡 추가"><svg><use href="#i-plus"/></svg></button></nav>
-</div>
 <footer class="device-footer"><span>Songs Change Your Life.</span><span>SCYL / 0.4</span></footer>
 </main>
 <dialog id="queue-dialog" class="sheet queue-sheet"><div class="sheet-handle" aria-hidden="true"></div><header class="sheet-heading"><div><span class="eyebrow">YOUR SELECTION</span><h2>나의 세트</h2></div><button class="close-dialog round-button" aria-label="재생목록 닫기"><svg><use href="#i-close"/></svg></button></header>
