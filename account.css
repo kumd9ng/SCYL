@@ -15,10 +15,16 @@ dialog.scyl-account{box-sizing:border-box;width:min(420px,calc(100% - 28px));max
 .companion-choice input:focus-visible+.companion-avatar{outline:2px solid #dc713e;outline-offset:4px;border-radius:8px}
 .companion-name{font-size:14px;line-height:1.35;text-align:center;word-break:keep-all;overflow-wrap:anywhere}
 .companion-choice:has(input:disabled){opacity:.55;cursor:wait}
-.scyl-account p.companion-selection{margin:0;font-size:14px;color:#6a6c61;min-height:21px}
+.scyl-account p.companion-selection{margin:0;font-size:14px;line-height:1.5;color:#51554b;min-height:42px;word-break:keep-all;overflow-wrap:anywhere}
 .scyl-account .companion-mbti{position:relative}.scyl-account .companion-mbti::after{content:'';position:absolute;right:17px;bottom:21px;width:7px;height:7px;border-right:2px solid #696b63;border-bottom:2px solid #696b63;transform:rotate(45deg);pointer-events:none}
 .scyl-account .companion-mbti select{appearance:none;-webkit-appearance:none;box-sizing:border-box;width:100%;min-height:48px;border:1px solid #c3c3b9;border-radius:10px;padding:10px 38px 10px 12px;background:#fff9;color:#30312d;font:inherit;font-size:16px}
 .scyl-account [data-profile-form]{gap:12px}.scyl-account [data-profile-form] .account-note{margin:0}.scyl-account [data-profile-label]{font-weight:600;color:#725037}
 .scyl-account .account-password-settings{border-top:1px solid #deddd4;padding-top:12px}.scyl-account .account-password-settings summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-size:14px}.scyl-account [data-password-form]{margin-top:8px;gap:12px}.scyl-account [data-password-message]:empty{display:none}.scyl-account [data-auth-help]{margin:0}
 @media(max-width:360px){.scyl-account.is-onboarding{padding:20px}.companion-grid{gap:6px}.companion-avatar{width:45px;height:45px}}
 @media(max-width:420px){.companion-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.scyl-account-entry.has-companion{box-sizing:border-box;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex:0 0 52px;width:52px;max-width:52px;min-height:58px;padding:4px;line-height:1;border-radius:16px}
+.scyl-account-entry .scyl-account-avatar{display:block;flex:0 0 32px;width:32px;height:32px;margin:0;background-repeat:no-repeat}
+.scyl-account-entry .scyl-account-mbti{display:block;margin:0;font-size:11px;font-weight:600;line-height:1;letter-spacing:.03em}
+.scyl-account-entry:focus-visible{outline:2px solid #ec702e;outline-offset:3px}
+@media(max-width:420px){.lab-device>header:has(.scyl-account-entry.has-companion){flex-wrap:wrap;row-gap:4px}.lab-device>header:has(.scyl-account-entry.has-companion)>div{flex:1;min-width:0}.lab-device>header:has(.scyl-account-entry.has-companion)>a{order:1;flex-basis:100%;margin-left:42px}.lab-device>header>.scyl-account-entry.has-companion{margin-left:auto}}
+@media(max-width:380px){.player-device>.device-header:has(.scyl-account-entry.has-companion){flex-wrap:wrap;gap:8px}.player-device>.device-header:has(.scyl-account-entry.has-companion) .device-subtitle{order:1;flex-basis:100%;margin-left:0}.player-device>.device-header:has(.scyl-account-entry.has-companion) .help-button{margin-left:auto}}
