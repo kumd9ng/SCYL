@@ -61,6 +61,25 @@ test('email link parser accepts only fragment credentials with supported email t
   }
 });
 
+test('Supabase 서버의 빈 sb 표식이 포함된 공식 성공 콜백을 허용한다', () => {
+  // Go's url.Values.Encode sorts these fields; mirror the server response,
+  // including its otherwise easy-to-miss empty Supabase identifier.
+  for (const type of ['magiclink', 'signup', 'email']) {
+    const fragment = new URLSearchParams({ access_token: INPUT.access_token, expires_at: '1900000000',
+      expires_in: '3600', refresh_token: INPUT.refresh_token, sb: '', token_type: 'bearer', type });
+    const result = parseEmailLinkTokens(`https://scyl.example.test/auth.html#${fragment}`);
+    assert.deepEqual(result, { ok: true, tokens: INPUT, type });
+    assert.equal('sb' in result.tokens, false);
+  }
+});
+
+test('sb 표식만으로는 인증되지 않으며 중복·비정상 표식과 섞인 자격정보는 거부한다', () => {
+  for (const input of ['https://scyl.example.test/auth.html#sb=', link('&sb=&sb='), link('&sb=trusted'),
+    link('&SB='), link('&sb=&access_token=duplicate'), link('&sb=', '?code=another-code'), link('&sb=&provider_token=private')]) {
+    assert.equal(parseEmailLinkTokens(input).code, 'invalid_email_link');
+  }
+});
+
 test('parser rejects insecure origins, query credentials, mixed flows, duplicate parameters and oversized input', () => {
   const rejected = [
     link('', '', 'http://scyl.example.test/auth.html'), link('', '', 'https://user:password@scyl.example.test/auth.html'),
@@ -329,7 +348,11 @@ test('installed Supabase SDK accepts a new-browser email link and the next SCYL 
     clients.push(client);
     return client;
   };
-  const machine = createEmailLinkSession({ tokens: initial, url: URL, key: KEY, storage, createClient: makeClient });
+  const serverFragment = new URLSearchParams({ access_token: initial.access_token, expires_at: String(now + 3600),
+    expires_in: '3600', refresh_token: initial.refresh_token, sb: '', token_type: 'bearer', type: 'magiclink' });
+  const parsed = parseEmailLinkTokens(`https://scyl.example.test/auth.html#${serverFragment}`);
+  assert.equal(parsed.ok, true, 'the real server callback format must reach server verification');
+  const machine = createEmailLinkSession({ tokens: parsed.tokens, url: URL, key: KEY, storage, createClient: makeClient });
   let account;
   try {
     assert.equal(data.size, 0, 'new browser has no session or PKCE verifier');

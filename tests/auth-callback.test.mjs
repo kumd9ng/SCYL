@@ -50,6 +50,14 @@ test('새 이메일 해시 링크는 별도의 확인 화면으로 분류한다'
   assert.equal('user' in callback, false);
 });
 
+test('Supabase 성공 표식이 있는 메일은 형식 오류 대신 서버 확인 화면으로 전달한다', () => {
+  for (const path of [base, `${base}.html`]) {
+    const callback = readAuthCallback(`${path}${fragment}&sb=`);
+    assert.equal(callback.kind, 'email');
+    assert.deepEqual(callback.tokens, { access_token: 'synthetic.access.token', refresh_token: 'synthetic-refresh-token' });
+  }
+});
+
 test('해시와 쿼리가 섞이거나 중복된 인증 정보는 실패 화면으로 보낸다', () => {
   for (const suffix of [`?code=${code}${fragment}`, `${fragment}&access_token=another-token`, `${fragment}&error=denied`, '?access_token=synthetic-access&refresh_token=synthetic-refresh&type=magiclink']) {
     assert.equal(readAuthCallback(base + suffix).kind, 'error');

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mountAuthPage } from '../lib/auth-page.mjs';
 
 const base = 'https://scyl.example.test/auth.html';
-const link = label => `${base}#access_token=synthetic-access-${label}&refresh_token=synthetic-refresh-${label}&type=magiclink`;
+const link = label => `${base}#access_token=synthetic-access-${label}&refresh_token=synthetic-refresh-${label}&sb=&type=magiclink`;
 
 function setup(initial = base) {
   let href = initial;
