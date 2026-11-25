@@ -366,7 +366,7 @@ test('the installed SDK restores a previously valid verifier after a synthetic 4
       sdk = createSupabaseClient(url, key, { ...options, auth: { ...options.auth, autoRefreshToken: false }, global: { async fetch(request) {
         assert.equal(new globalThis.URL(request).pathname, '/auth/v1/otp');
         requests++;
-        return requests === 1 ? new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+        return requests !== 2 ? new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
           : new Response(JSON.stringify({ code: 'over_email_send_rate_limit', error_code: 'over_email_send_rate_limit', msg: 'synthetic limit' }), { status: 429, headers: { 'content-type': 'application/json' } });
       } } });
       return sdk;
@@ -379,6 +379,11 @@ test('the installed SDK restores a previously valid verifier after a synthetic 4
   assert.equal(limited.code, 'over_email_send_rate_limit');
   assert.equal(storage.getItem('scyl-auth-v1-code-verifier') === previous, true);
   assert.equal(requests, 2);
+  clock += 60_001;
+  assert.equal((await account.requestCode(A.email)).ok, true);
+  assert.equal(requests, 3);
+  assert.equal(account.getState().phase, 'code-sent');
+  assert.notEqual(storage.getItem('scyl-auth-v1-code-verifier'), previous);
   account.dispose(); await sdk.auth.stopAutoRefresh();
 });
 
@@ -420,4 +425,102 @@ test('disposing the account tears down SDK resources exactly once without loggin
   assert.equal(closed, 1);
   assert.equal(f.calls.some(call => call[0] === 'signOut'), false);
   assert.equal(f.disconnected, true);
+});
+
+test('같은 이메일의 승인이 대기 중이어도 60초 뒤에는 새 발송 요청을 보낸다', async () => {
+  const f = fixture(); await f.account.start(); await f.account.requestCode(A.email);
+  assert.equal(f.account.getState().phase, 'code-sent');
+  f.advance(59_999);
+  const cooldown = await f.account.requestCode(A.email);
+  assert.equal(cooldown.code, 'email_request_cooldown'); assert.doesNotMatch(cooldown.message, /이미 받은|승인은 지금/);
+  assert.equal(f.calls.filter(call => call[0] === 'request').length, 1);
+  f.advance(1);
+  assert.equal((await f.account.requestCode(A.email)).ok, true);
+  assert.equal(f.calls.filter(call => call[0] === 'request').length, 2);
+  f.advance(60_000);
+  f.auth.signInWithOtp = async () => ({ error: { code: 'over_email_send_rate_limit' } });
+  const limited = await f.account.requestCode(A.email);
+  assert.equal(limited.ok, false); assert.match(limited.message, /새 메일을 보내지 못/);
+  assert.doesNotMatch(limited.message, /이미 받은|승인 버튼/); f.account.dispose();
+});
+
+function trackedStorage() {
+  const storage = memoryStorage(), writes = [];
+  return { writes, getItem: storage.getItem,
+    setItem(key, value) { writes.push(['set', key]); storage.setItem(key, value); },
+    removeItem(key) { writes.push(['remove', key]); storage.removeItem(key); } };
+}
+function sessionFor(user, expired = false) {
+  const expires = Math.floor(Date.now() / 1000) + (expired ? -1000 : 3600);
+  return { access_token: jwt({ sub: user.id, exp: expires }), refresh_token: `synthetic-refresh-${user.id}`,
+    expires_in: 3600, expires_at: expires, token_type: 'bearer', user };
+}
+const jsonResponse = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
+
+test('실제 SDK의 폐기된 PKCE 교환은 늦게 성공해도 새 세션과 검증값을 덮어쓰지 않는다', async () => {
+  const storage = trackedStorage(), entered = deferred(), response = deferred(); let requests = 0;
+  const account = createSharedAccount({ url: URL, key: KEY, storage, createClient(url, key, options) {
+    return createSupabaseClient(url, key, { ...options, auth: { ...options.auth, autoRefreshToken: false }, global: { async fetch(input) {
+      const endpoint = new globalThis.URL(input); assert.equal(endpoint.pathname, '/auth/v1/token');
+      assert.equal(endpoint.searchParams.get('grant_type'), 'pkce'); requests++; entered.resolve(); return response.promise;
+    } } });
+  } });
+  await account.start(); storage.setItem('scyl-auth-v1-code-verifier', JSON.stringify('synthetic-existing-verifier'));
+  const pending = account.completeLink('00000000-0000-4000-8000-000000000099'); await entered.promise;
+  await account.dispose();
+  const newer = JSON.stringify(sessionFor(B)), verifier = JSON.stringify('newer-controller-verifier');
+  storage.setItem('scyl-auth-v1', newer); storage.setItem('scyl-auth-v1-code-verifier', verifier); storage.writes.length = 0;
+  response.resolve(jsonResponse(sessionFor(A)));
+  assert.equal((await pending).code, 'cancelled');
+  assert.equal(storage.getItem('scyl-auth-v1'), newer);
+  assert.equal(storage.getItem('scyl-auth-v1-code-verifier'), verifier);
+  assert.deepEqual(storage.writes, []); assert.equal(requests, 1);
+});
+
+for (const outcome of ['success', 'failure']) {
+  test(`실제 SDK의 폐기된 초기 갱신 ${outcome}는 새 계정의 저장 정보를 변경하지 않는다`, async t => {
+    const diagnostics = [];
+    for (const method of ['warn', 'error']) t.mock.method(console, method, value => { diagnostics.push(value); });
+    const storage = trackedStorage(), entered = deferred(), response = deferred(); let requests = 0;
+    storage.setItem('scyl-auth-v1', JSON.stringify(sessionFor(A, true)));
+    const account = createSharedAccount({ url: URL, key: KEY, storage, createClient(url, key, options) {
+      return createSupabaseClient(url, key, { ...options, auth: { ...options.auth, autoRefreshToken: false }, global: { async fetch(input) {
+        const endpoint = new globalThis.URL(input); assert.equal(endpoint.pathname, '/auth/v1/token');
+        assert.equal(endpoint.searchParams.get('grant_type'), 'refresh_token'); requests++; entered.resolve(); return response.promise;
+      } } });
+    } });
+    const starting = account.start(); await entered.promise; await account.dispose();
+    const newer = JSON.stringify(sessionFor(B)), verifier = JSON.stringify('newer-controller-verifier');
+    storage.setItem('scyl-auth-v1', newer); storage.setItem('scyl-auth-v1-code-verifier', verifier); storage.writes.length = 0;
+    response.resolve(outcome === 'success' ? jsonResponse(sessionFor(A))
+      : jsonResponse({ code: 'refresh_token_not_found', error_code: 'refresh_token_not_found', msg: 'synthetic expired refresh' }, 400));
+    assert.equal((await starting).code, 'cancelled'); await tick();
+    assert.equal(storage.getItem('scyl-auth-v1'), newer);
+    assert.equal(storage.getItem('scyl-auth-v1-code-verifier'), verifier);
+    assert.deepEqual(storage.writes, []); assert.equal(requests, 1);
+    assert.ok(diagnostics.every(value => value?.name === 'AuthRefreshDiscardedError' || value?.code === 'refresh_token_not_found'));
+  });
+}
+
+test('검증값 읽기 중 화면이 폐기되어도 뒤이은 저장과 삭제를 실행하지 않는다', async () => {
+  for (const method of ['setItem', 'removeItem']) {
+    const storage = trackedStorage(), entered = deferred(), read = deferred(), f = fixture();
+    let blockedRead = false, wrapped;
+    storage.setItem('scyl-auth-v1-code-verifier', 'previous');
+    const adapter = { ...storage, getItem(key) {
+      if (blockedRead && key === 'scyl-auth-v1-code-verifier') { entered.resolve(); return read.promise; }
+      return storage.getItem(key);
+    } };
+    const account = createSharedAccount({ url: URL, key: KEY, storage: adapter, createClient(_url, _key, options) {
+      wrapped = options.auth.storage;
+      return { auth: { ...f.auth, async signInWithOtp() {
+        blockedRead = true; await wrapped[method]('scyl-auth-v1-code-verifier', 'old-request'); return { error: { status: 429 } };
+      } } };
+    } });
+    await account.start(); const pending = account.requestCode(A.email); await entered.promise; await account.dispose();
+    storage.setItem('scyl-auth-v1-code-verifier', 'new-controller'); storage.writes.length = 0; read.resolve('previous');
+    assert.equal((await pending).code, 'cancelled');
+    assert.equal(storage.getItem('scyl-auth-v1-code-verifier'), 'new-controller'); assert.deepEqual(storage.writes, []);
+    f.account.dispose();
+  }
 });
