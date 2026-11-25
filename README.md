@@ -62,6 +62,8 @@ Two audio sources share one Web Audio clock and overlap with an equal-power cros
 
 Tempo adjustment uses playback rate, so **pitch changes too**; there is no pitch-preserving time-stretching. Analysis is not guaranteed accurate for every song. Native file selection and playback still require physical-device verification.
 
+Leaving the app or an audio interruption pauses both tracks at their current positions. Returning to the app does not restart sound automatically; press **이어 듣기** to continue. Native playback waits until the app has confirmed it is ready and active.
+
 ## Development
 
 ```sh

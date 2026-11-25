@@ -2,6 +2,7 @@ import { createDemoAudio } from './lib/demo-audio.mjs';
 import { analyzeAudio } from './lib/audio-analysis.mjs';
 import { createAudioMixEngine } from './lib/audio-engine.mjs';
 import { loadAudioFile } from './lib/audio-files.mjs';
+import { createFilePlaybackLifecycle } from './lib/file-playback-lifecycle.mjs';
 
 const $ = id => document.getElementById(id);
 let context, engine, tracks = [], fileQueue = [], queueIndex = 0;
@@ -9,10 +10,31 @@ let sourceMode = 'none', busy = false, selectedFx = 0, lastStatus = '';
 let generation = 0, playbackIntent = 0, loadingNext = false, wantsPlayback = false, loading = new AbortController();
 const format = seconds => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds) % 60)).padStart(2, '0')}`;
 function message(text) { if (text !== lastStatus) { $('engine-message').textContent = text; lastStatus = text; } }
+const playbackLifecycle = createFilePlaybackLifecycle({
+  onInterrupt(reason) {
+    playbackIntent++; wantsPlayback = false;
+    if (!engine) return;
+    if (engine.snapshot().state === 'playing') engine.pause();
+    if (engine.snapshot().state !== 'paused') return;
+    $('pause').disabled = false; $('pause').textContent = '이어 듣기';
+    message(reason.startsWith('audio-')
+      ? '기기의 오디오가 중단되어 일시정지했습니다. 이어 듣기를 누르면 같은 위치에서 재생합니다.'
+      : '앱을 벗어나 일시정지했습니다. 돌아온 뒤 이어 듣기를 눌러 주세요.');
+  },
+  onError() { message('앱의 재생 상태를 확인하지 못했습니다. 앱을 다시 열어 주세요.'); },
+});
+function allowPlaybackRequest() {
+  if (playbackLifecycle.canRequestPlayback()) return true;
+  const state = playbackLifecycle.getState();
+  message(state.failed || state.contextState === 'closed'
+    ? '재생을 준비하지 못했습니다. 앱이나 페이지를 다시 열어 주세요.'
+    : '앱이 화면에 표시되고 준비된 뒤 재생을 눌러 주세요.');
+  return false;
+}
 function getContext() {
   const Audio = window.AudioContext || window.webkitAudioContext;
   if (!Audio) throw new Error('이 브라우저는 Web Audio를 지원하지 않습니다.');
-  context ||= new Audio();
+  if (!context) { context = new Audio(); playbackLifecycle.setContext(context); }
   return context;
 }
 function renderQueue() {
@@ -79,7 +101,7 @@ async function attachNext(token, targetEngine) {
       const beginNext = () => {
         pendingTracks = [next]; engine.setTracks(pendingTracks); tracks = pendingTracks;
         queueIndex = fileQueue.findIndex(item => item.id === entry.id);
-        if (wantsPlayback && !document.hidden && context.state === 'running') engine.play({ fadeDuration: 8 });
+        if (wantsPlayback && playbackLifecycle.canPlay()) engine.play({ fadeDuration: 8 });
         else { $('pause').disabled = true; $('stop').disabled = true; }
         renderTracks();
       };
@@ -136,10 +158,12 @@ function makeDemoTrack(settings, id, title) {
   return { id, title, buffer, analysis: analyzeAudio(data, { peakCount: 4096 }) };
 }
 $('demo-load').addEventListener('click', async () => {
+  if (!allowPlaybackRequest()) return;
   const token = resetSession('demo'), intent = playbackIntent; busy = true;
   try {
     await getContext().resume();
-    if (token !== generation || intent !== playbackIntent || document.hidden) return;
+    if (token !== generation || intent !== playbackIntent || !playbackLifecycle.canRequestPlayback()) return;
+    if (context.state !== 'running') throw new Error('오디오를 시작하지 못했습니다. 재생 버튼을 다시 눌러 주세요.');
     tracks = [makeDemoTrack({ bpm: 120, phase: .08 }, 'demo-a', '합성 데모 · 120 BPM'), makeDemoTrack({ bpm: 126, phase: .13, voice: 1 }, 'demo-b', '합성 데모 · 126 BPM')];
     fileQueue = tracks.map(({ id, title }) => ({ id, title }));
     $('source-note').textContent = '직접 합성한 두 음원으로 믹싱을 확인하는 데모입니다. YouTube 음원이 아닙니다.';
@@ -151,10 +175,11 @@ $('demo-load').addEventListener('click', async () => {
 });
 $('demo-play').addEventListener('click', async () => {
   if (busy || !engine) return;
+  if (!allowPlaybackRequest()) return;
   const targetEngine = engine, token = generation, intent = ++playbackIntent;
   try {
     await getContext().resume();
-    if (token !== generation || targetEngine !== engine || intent !== playbackIntent || document.hidden) return;
+    if (token !== generation || targetEngine !== engine || intent !== playbackIntent || !playbackLifecycle.canRequestPlayback()) return;
     if (context.state !== 'running') throw new Error('오디오를 시작하지 못했습니다. 재생 버튼을 다시 눌러 주세요.');
     targetEngine.play({ offset: sourceMode === 'demo' ? 20 : 0, fadeDuration: 8 }); wantsPlayback = true;
     $('pause').disabled = false; $('stop').disabled = false; $('pause').textContent = '일시정지';
@@ -166,8 +191,9 @@ $('pause').addEventListener('click', async () => {
   const targetEngine = engine, token = generation, intent = ++playbackIntent;
   try {
     if (targetEngine.snapshot().state === 'paused') {
+      if (!allowPlaybackRequest()) return;
       await context.resume();
-      if (token !== generation || targetEngine !== engine || intent !== playbackIntent || document.hidden) return;
+      if (token !== generation || targetEngine !== engine || intent !== playbackIntent || !playbackLifecycle.canRequestPlayback()) return;
       if (context.state !== 'running') throw new Error('재생 버튼을 다시 눌러 주세요.');
       targetEngine.resume(); wantsPlayback = true; $('pause').textContent = '일시정지'; message('재생을 이어갑니다.');
     } else { wantsPlayback = false; targetEngine.pause(); $('pause').textContent = '이어 듣기'; message('일시정지했습니다. 이어 듣기를 누르면 같은 위치에서 재생합니다.'); }
@@ -182,12 +208,10 @@ document.querySelectorAll('.lab-fx').forEach(button => button.addEventListener('
   $('filter').value = effects.filterHz; $('echo').value = effects.echo; $('fx-sheet').showModal();
 }));
 for (const id of ['filter', 'echo']) $(id).addEventListener('input', () => engine?.setFx(selectedFx, { filterHz: Number($('filter').value), echo: Number($('echo').value) }));
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) return;
-  playbackIntent++; wantsPlayback = false;
-  if (engine) { engine.pause(); $('pause').textContent = '이어 듣기'; message('화면을 벗어나 일시정지했습니다.'); }
-});
-addEventListener('pagehide', () => { playbackIntent++; wantsPlayback = false; engine?.pause(); });
+document.addEventListener('visibilitychange', () => playbackLifecycle.visibilityChanged());
+addEventListener('pagehide', () => { void playbackLifecycle.stop().catch(() => {}); });
+addEventListener('pageshow', event => { if (event.persisted) void playbackLifecycle.start().catch(() => {}); });
+void playbackLifecycle.start().catch(() => {});
 
 const canvas = $('live-wave'), pen = canvas.getContext('2d');
 const curveEnvelopes = new WeakMap();

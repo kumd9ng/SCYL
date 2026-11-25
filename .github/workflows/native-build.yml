@@ -1,0 +1,117 @@
+name: Native build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/native-build.yml'
+      - '.npmrc'
+      - 'android/**'
+      - 'ios/**'
+      - 'assets/**'
+      - 'lib/**'
+      - 'app.mjs'
+      - 'privacy.mjs'
+      - 'mix-lab.mjs'
+      - 'audio-analysis-worker.mjs'
+      - '*.html'
+      - '*.css'
+      - 'manifest.webmanifest'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/build-web.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Select Java 21 and Android SDK 36
+        run: |
+          test -x "$JAVA_HOME_21_X64/bin/java"
+          echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+          "$JAVA_HOME_21_X64/bin/java" -version
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Install dependencies
+        run: npm ci
+      - name: Synchronize Android project
+        run: npm run native:android
+      - name: Compile debug APK
+        working-directory: android
+        run: bash ./gradlew --no-daemon assembleDebug
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: scyl-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  ios:
+    name: iOS simulator app (unsigned)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Show Xcode version
+        run: xcodebuild -version
+      - name: Install dependencies
+        run: npm ci
+      - name: Synchronize iOS project
+        run: npm run native:ios
+      - name: Compile unsigned simulator app
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/scyl-ios-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+      - name: Package simulator app with executable permissions
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/scyl-ios-build/Build/Products/Debug-iphonesimulator/App.app" \
+            "$RUNNER_TEMP/SCYL-ios-simulator-unsigned.zip"
+      - name: Upload unsigned simulator app
+        uses: actions/upload-artifact@v7
+        with:
+          name: scyl-ios-simulator-unsigned
+          path: ${{ runner.temp }}/SCYL-ios-simulator-unsigned.zip
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

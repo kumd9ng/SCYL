@@ -1,4 +1,4 @@
-# Audio validation · 0.3.0
+# Audio validation · 0.3.1
 
 Checked on 25 November 2026 in desktop Chrome on Windows. These results concern local-file audio, not YouTube mixing or a physical mobile device.
 
@@ -17,10 +17,12 @@ Checked on 25 November 2026 in desktop Chrome on Windows. These results concern 
 
 The production web bundle was exercised with three original WAV files at 120, 126, and 124 BPM, lasting 18, 20, and 22 seconds. The test used real `File` selection, metadata loading, decoding, analysis workers, and a physical first Play click.
 
-All 12 browser checks passed, including both overlapping transitions before track end, continuous playback positions when B and C become current, queue completion, moving/frozen curve pixels, a 390 px layout without horizontal overflow, and Stop cancelling a delayed resume continuation.
+All 15 browser checks passed, including both overlapping transitions before track end, continuous playback positions when B and C become current, queue completion, moving/frozen curve pixels, a 390 px layout without horizontal overflow, and Stop cancelling a delayed resume continuation.
+
+During the first actual overlap, suspending the real `AudioContext` paused the app and preserved both track positions and rendered curve pixels. Returning the context to `running` did not restart playback. Pressing Continue resumed both overlapping tracks from their preserved positions. These checks used real context state changes in desktop Chrome; they do not establish physical iPhone interruption behavior.
 
 ## Other checks and limits
 
-All 64 unit tests, syntax checks, the web build, and Android/iOS asset synchronization passed. Synchronization is not native compilation or store submission.
+All 73 unit tests, syntax checks, the web build, and Android/iOS asset synchronization passed. The lifecycle tests include native startup gating, background interruption, paused-position retention, stale callbacks, page restoration, and failure handling. Synchronization is not native compilation or store submission.
 
 These synthesized fixtures do not establish mixing quality or tempo-analysis accuracy for arbitrary music. Playback-rate changes also change pitch. Physical iPhone/Android playback, native file selection, and musical listening evaluation remain unverified.
