@@ -4,6 +4,12 @@
 
 SCYL is intended to make a personal set feel connected from one song to the next. Version 0.3 provides two source modes: YouTube links for official-player listening sets, and local audio files for direct audio processing. The interface is portrait, with two large circular dials stacked vertically.
 
+## Web and installed apps
+
+The product has two parallel delivery targets: a website used directly in a browser, and installed iOS/Android apps. Browser use must not require installing SCYL, joining TestFlight, or having a developer account. Native packaging must not replace or postpone the working web version.
+
+Both targets share the same player, local-file analysis, automatic mixing, waveform transport, and FX code. New playback changes must be checked in the browser and included in the native bundle. Native compilation and physical-device playback remain separate checks. The hosted preview keeps its existing required login; changing delivery targets does not authorize removing authentication or widening access.
+
 ## Current design
 
 The upper dial represents the current track; the lower dial represents the next. In YouTube mode, the dials show video thumbnails after connection consent, and their **fx** buttons explain source limitations. In local-file mode, the controls apply a low-pass filter and echo to decoded audio.
@@ -17,7 +23,7 @@ The visual identity uses an off-white surface, charcoal controls, and an orange 
 - Add individual YouTube video URLs and supported start-time parameters.
 - Arrange, restore, repeat, and export a local listening set.
 - Play through the visible official YouTube player.
-- Seek with the upper dial's rim or the timeline control.
+- Seek with the upper dial's rim or keyboard controls. There is no separate SCYL seek bar.
 - Transition sequentially; use volume fades only where the player supports them.
 - Pause when the app is no longer in the foreground.
 
@@ -32,7 +38,7 @@ The listener can select up to 100 local files, each no larger than 60 MiB or lon
 | Track transition | Fade out, stop, then start the next player where volume control works | Scheduled overlap with equal-power fades |
 | Beat alignment | Not supported | Align estimated beat grids when confidence and tempo-ratio checks pass |
 | FX | Source-support information only | Low-pass filter and echo |
-| Waveform | No audio-analysis display | PCM-derived peaks following playback |
+| Waveform | No audio-analysis display | PCM-derived curves; drag left/right to seek both tracks on their shared timeline |
 | Retention | Set and preferences restored from local storage | Files, file queue, and analysis are not persisted |
 
 Selected files and their analysis are not uploaded. Reloading requires selecting files again. An optional synthesized demo provides two original tracks for trying the engine without importing a file. Neither path extracts or processes YouTube audio.
@@ -41,7 +47,7 @@ Tempo correction currently uses playback rate, which changes pitch as well as sp
 
 ## Before a wider release
 
-Priorities are reliable mobile file loading and recovery, accessible controls, measured beat alignment on varied music, and a reproducible native build. Native YouTube client identity and physical-device validation remain outstanding. A public app release also needs finalized identifiers, publisher/support details, privacy disclosures, signing, and store review. There is no confirmed store release or subscription price.
+Priorities are reliable browser and mobile file loading and recovery, accessible controls, measured beat alignment on varied music, and reproducible native builds. Version 0.3.2 passed browser file playback and waveform transport checks plus Android debug/iOS simulator compilation. Native YouTube client identity and physical-device validation remain outstanding. A public app release also needs finalized identifiers, publisher/support details, privacy disclosures, signing, and store review. There is no confirmed store release or subscription price.
 
 Useful verification describes the environment and result: mocked scheduling, offline PCM rendering, actual browser playback, and a physical device are separate evidence. A moving waveform alone is not proof of beat alignment or an audible crossfade.
 

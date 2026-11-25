@@ -1,6 +1,6 @@
 # Native builds
 
-The repository includes Capacitor projects for Android and iOS. Synchronizing those projects is supported; successful platform compilation, signing, installation, and physical-device playback have not been established by this source publication.
+The repository includes Capacitor projects for Android and iOS alongside the browser application. At version 0.3.2, commit `2ad1b0a3f18329299925e486dc73e5593d932c5b`, both Android debug APK and unsigned iOS simulator compilation passed in [the native build run](https://github.com/kumd9ng/SCYL/actions/runs/45550972890). Distribution signing, installation on physical devices, and physical-device playback remain unverified. The working browser version does not require native installation or a developer account.
 
 ## Shared setup
 

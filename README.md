@@ -12,6 +12,8 @@ A portrait music player built around two circular dials: the song playing now an
 
 > YouTube 링크로 곡을 모으거나, 기기의 음악 파일로 자동 믹싱하는 세로형 음악 앱입니다. 위아래 두 개의 원형 다이얼은 현재 곡과 다음 곡을 나타냅니다. SCYL은 **Songs Change Your Life.**의 약자입니다.
 
+**웹과 설치형 앱을 함께 개발합니다.** 웹은 설치 없이 브라우저에서 사용하며, iOS·Android 앱도 같은 재생·믹싱 코드를 사용합니다. 웹 사용에는 TestFlight나 개발자 계정이 필요하지 않습니다. 설치형 앱의 스토어 배포는 별도로 준비 중입니다.
+
 **Development preview:** the two source modes have different capabilities. YouTube uses the official player and sequential transitions, without beatmatching or audio FX. Local-file mode provides sample-based waveforms, overlapping transitions, and filter/echo processing. The former static waveform illustration has been removed from the YouTube screen.
 
 ## Start listening
