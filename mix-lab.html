@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4f3ee">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>SCYL · 파일 음원 자동 믹싱</title>
+  <link rel="icon" href="assets/scyl-logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="mix-lab.css">
+  <script type="module" src="mix-lab.mjs"></script>
+</head>
+<body>
+<main class="lab-device">
+  <header><img src="assets/scyl-logo.svg" width="32" height="32" alt=""><div><strong>SCYL.</strong><span>Songs Change Your Life.</span></div><a href="index.html">YouTube 듣기</a></header>
+  <p class="lab-notice" id="source-note">기기의 음악 파일로 비트를 맞춰 이어 듣기.<br>선택한 파일은 서버에 업로드하지 않습니다.</p>
+  <div class="source-actions"><button id="choose-files">음악 파일 선택</button><button id="demo-load">합성 데모 듣기</button><input id="audio-files" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" multiple hidden></div>
+  <section class="lab-deck" aria-labelledby="title-a">
+    <div class="deck-label"><span>01 / CURRENT</span><output id="tempo-a">분석 전</output></div>
+    <h1 id="title-a">음악 파일을 선택하세요</h1>
+    <div class="lab-dial" id="dial-a"><div class="dial-cue"></div><button class="lab-fx" data-deck="0" aria-label="첫 번째 곡 효과">fx</button></div>
+    <div class="deck-time"><output id="time-a">0:00</output><output id="gain-a">0%</output></div>
+  </section>
+  <section class="lab-wave" aria-label="두 곡의 흐르는 곡선과 소리가 겹치는 구간">
+    <div class="wave-label"><span>TRANSITION</span><output id="mix-state">준비</output></div>
+    <canvas id="live-wave" width="660" height="200" aria-label="두 음원의 에너지를 부드러운 곡선으로 표시하며 재생에 맞춰 왼쪽으로 흐릅니다"></canvas>
+    <div class="curve-key" aria-hidden="true"><span>현재 곡</span><span>다음 곡</span></div>
+    <p id="wave-detail">두 곡의 곡선이 흐르며, 표시된 구간에서 소리가 겹칩니다.</p>
+  </section>
+  <section class="lab-deck" aria-labelledby="title-b">
+    <div class="deck-label"><span>02 / NEXT</span><output id="tempo-b">분석 전</output></div>
+    <h2 id="title-b">다음 곡</h2>
+    <div class="lab-dial secondary" id="dial-b"><div class="dial-cue"></div><button class="lab-fx" data-deck="1" aria-label="두 번째 곡 효과">fx</button></div>
+    <div class="deck-time"><output id="time-b">0:00</output><output id="gain-b">0%</output></div>
+  </section>
+  <div class="lab-controls"><button id="demo-play" class="primary" disabled>세트 재생</button><button id="pause" disabled>일시정지</button><button id="stop" disabled>정지</button></div>
+  <p id="engine-message" role="status" aria-live="polite">두 곡 이상 선택하면 앞 곡이 끝나기 전에 자동으로 믹싱합니다.</p>
+  <details id="set-list"><summary id="queue-summary">세트 · 0곡</summary><ol id="file-queue"></ol></details>
+  <p class="lab-footnote">박자가 뚜렷한 곡은 속도를 맞추고, 분석이 불확실하면 일반 크로스페이드로 연결합니다. 속도 조절 시 음높이도 변합니다. 파일은 곡당 60MB·12분까지, 새로고침하면 다시 선택해야 합니다.</p>
+</main>
+<dialog id="fx-sheet"><form method="dialog"><header><strong id="fx-title">FX</strong><button aria-label="닫기">닫기</button></header></form><label>필터 <input id="filter" type="range" min="200" max="20000" value="20000" step="100"></label><label>에코 <input id="echo" type="range" min="0" max=".45" value="0" step=".01"></label><p>현재 재생 소리에 실제로 적용됩니다.</p></dialog>
+</body>
+</html>

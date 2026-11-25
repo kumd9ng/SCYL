@@ -16,8 +16,8 @@ return http.createServer(async(req,res)=>{
       const d=await r.json();res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public,max-age=3600'});return res.end(JSON.stringify({title:d.title,author:d.author_name}));
     }
     const requested=decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname);
-    if(!/^\/(?:index\.html|privacy\.html|style\.css|(?:app|privacy)\.mjs|manifest\.webmanifest|assets\/[\w.-]+\.(?:svg|png)|lib\/[\w.-]+\.mjs)$/.test(requested)){res.writeHead(404);return res.end('Not found');}
-    const data=await readFile(path.join(root,requested));
+    if(!/^\/(?:index\.html|privacy\.html|mix-lab\.html|audio-analysis-worker\.js|(?:style|mix-lab)\.css|(?:app|privacy|mix-lab)\.mjs|manifest\.webmanifest|assets\/[\w.-]+\.(?:svg|png)|lib\/[\w.-]+\.mjs)$/.test(requested)){res.writeHead(404);return res.end('Not found');}
+    const data=await readFile(path.join(root,requested === '/audio-analysis-worker.js' ? '/audio-analysis-worker.mjs' : requested));
     res.writeHead(200,{'Content-Type':mime[path.extname(requested)]||'application/octet-stream','Referrer-Policy':'strict-origin-when-cross-origin','X-Content-Type-Options':'nosniff','Cache-Control':'no-cache'});res.end(data);
   }catch(e){res.writeHead(e.code==='ENOENT'?404:502);res.end('Request unavailable');}
 });

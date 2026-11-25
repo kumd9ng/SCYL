@@ -87,6 +87,8 @@ On each target device, verify YouTube connection consent, first playback, foregr
 
 The native YouTube player must receive a supported client identity. The current iOS custom-scheme WebView setup still needs an appropriate identity integration and real-device verification. A native compile alone does not resolve that playback requirement.
 
-Original video controls remain visible and unmasked. iPhone volume is controlled by the device; the current implementation does not promise a volume fade there. Automatic simultaneous mixing, beatmatching, FX, and background playback are not implemented.
+Original video controls remain visible and unmasked. iPhone volume is controlled by the device; the YouTube mode does not promise a volume fade there. YouTube mode does not implement automatic simultaneous mixing, beatmatching, or FX.
+
+The separate local-file mode implements PCM waveforms, estimated beat alignment, overlapping crossfades, and filter/echo with Web Audio. Verify native file selection, metadata decoding, module workers, audio output, and foreground/background interruption on physical devices before release. Playback-rate changes also change pitch. Background playback is not implemented in either mode.
 
 Official references: [Capacitor workflow](https://capacitorjs.com/docs/basics/workflow), [Android development](https://capacitorjs.com/docs/android), [iOS development](https://capacitorjs.com/docs/ios), and [YouTube player requirements](https://developers.google.com/youtube/terms/required-minimum-functionality).

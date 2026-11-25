@@ -2,17 +2,17 @@
 
 **SCYL — Songs Change Your Life.**
 
-SCYL is intended to make a personal set feel connected from one song to the next. The current input is simple: one YouTube video URL adds one track. The interface is portrait, with two large circular dials stacked vertically.
+SCYL is intended to make a personal set feel connected from one song to the next. Version 0.3 provides two source modes: YouTube links for official-player listening sets, and local audio files for direct audio processing. The interface is portrait, with two large circular dials stacked vertically.
 
 ## Current design
 
-The upper dial represents the current track; the lower dial represents the next. Each shows its video's thumbnail after YouTube connection consent. Center **fx** buttons open support information for that track. Play, pause, track navigation, and set access sit below the dials.
+The upper dial represents the current track; the lower dial represents the next. In YouTube mode, the dials show video thumbnails after connection consent, and their **fx** buttons explain source limitations. In local-file mode, the controls apply a low-pass filter and echo to decoded audio.
 
-The thin waveform between the dials is a **design preview**. It illustrates the intended visual treatment for transitions, but it is not generated from the video's audio and does not demonstrate a working mix.
+Local-file mode displays waveform peaks calculated from the selected audio's PCM, scrolling with playback position. The former static waveform illustration has been removed from the YouTube screen. A source-mode link lets the listener choose the appropriate playback path.
 
 The visual identity uses an off-white surface, charcoal controls, and an orange indicator. The original logo contains only a circular dial and an orange point. The name and **Songs Change Your Life.** are separate text, with no additional catchphrase.
 
-## Available behavior
+## YouTube listening sets
 
 - Add individual YouTube video URLs and supported start-time parameters.
 - Arrange, restore, repeat, and export a local listening set.
@@ -21,26 +21,28 @@ The visual identity uses an off-white surface, charcoal controls, and an orange 
 - Transition sequentially; use volume fades only where the player supports them.
 - Pause when the app is no longer in the foreground.
 
-No SCYL account or cloud set service is connected. The 14-track first-set counter is informational; payment, advertisements supplied by SCYL, and family account management are not active.
+The YouTube set is stored locally. Its 14-track first-set counter is informational; no payment or usage gate is enforced. SCYL accounts, cloud sets, advertisements supplied by SCYL, and family account management are not connected.
 
-## Desired listening engine
+## Local-file mixing
 
-The intended direction includes beat-aware transitions, overlapping crossfades, and audio effects. Those features require direct access to audio that the application is permitted to process. A YouTube URL embedded through the official iframe API does not provide that processing path.
+The listener can select up to 100 local files, each no larger than 60 MiB or longer than 12 minutes. File metadata is checked locally, and a worker analyzes decoded PCM for waveform peaks and estimated tempo/beat positions. Current and next tracks use two decoded playback buffers; a queue of files does not mean decoding the whole set at once.
 
-| Area | Current implementation | Work still required |
+| Area | YouTube mode | Local-file mode |
 | --- | --- | --- |
-| Track transition | Fade out, stop, then start the next player | A suitable audio source and an engine for overlapping playback |
-| Beatmatching | None | Tempo/beat analysis, synchronization, and measurable alignment |
-| FX | A source-support explanation | A permitted audio graph with effects and device-level validation |
-| Waveform | Labeled illustration | Real audio analysis connected to the playback timeline |
-| Native apps | Platform source projects | Client identity integration, signed builds, and physical-device testing |
+| Track transition | Fade out, stop, then start the next player where volume control works | Scheduled overlap with equal-power fades |
+| Beat alignment | Not supported | Align estimated beat grids when confidence and tempo-ratio checks pass |
+| FX | Source-support information only | Low-pass filter and echo |
+| Waveform | No audio-analysis display | PCM-derived peaks following playback |
+| Retention | Set and preferences restored from local storage | Files, file queue, and analysis are not persisted |
 
-A separate audio source has not been selected. The project should not silently replace YouTube input or claim those planned features already work. Discussion of a new source needs to address available audio access, intended user flow, and what can actually be tested.
+Selected files and their analysis are not uploaded. Reloading requires selecting files again. An optional synthesized demo provides two original tracks for trying the engine without importing a file. Neither path extracts or processes YouTube audio.
+
+Tempo correction currently uses playback rate, which changes pitch as well as speed. Pitch-preserving time-stretching is not implemented. Beat positions and BPM are estimates, not guarantees for every recording; uncertain grids or unsuitable tempo ratios use an ordinary crossfade. Unsupported formats or slow decoding can interrupt a set, and real-device behavior still needs verification.
 
 ## Before a wider release
 
-Priorities are reliable mobile startup and recovery, accessible controls, measured transition behavior, and a reproducible native build. A public app release also needs finalized identifiers, publisher/support details, privacy disclosures, signing, and store review. There is no confirmed store release or subscription price.
+Priorities are reliable mobile file loading and recovery, accessible controls, measured beat alignment on varied music, and a reproducible native build. Native YouTube client identity and physical-device validation remain outstanding. A public app release also needs finalized identifiers, publisher/support details, privacy disclosures, signing, and store review. There is no confirmed store release or subscription price.
 
-Useful verification describes the environment and result: mocked player state, actual browser playback, and a physical device are separate evidence. Visual similarity to a mix is not proof of beatmatching.
+Useful verification describes the environment and result: mocked scheduling, offline PCM rendering, actual browser playback, and a physical device are separate evidence. A moving waveform alone is not proof of beat alignment or an audible crossfade.
 
 The technical boundary follows the [YouTube IFrame API](https://developers.google.com/youtube/iframe_api_reference), [required player functionality](https://developers.google.com/youtube/terms/required-minimum-functionality), and [developer policies](https://developers.google.com/youtube/terms/developer-policies).

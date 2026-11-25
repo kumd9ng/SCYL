@@ -10,7 +10,7 @@ const config = JSON.parse(await readFile(path.join(root, 'capacitor.config.json'
 if (config.webDir !== 'www' || path.dirname(out) !== root || path.basename(out) !== 'www') {
   throw new Error('Refusing to package outside the project-owned www directory.');
 }
-const inputs = ['index.html', 'privacy.html', 'style.css', 'manifest.webmanifest'];
+const inputs = ['index.html', 'privacy.html', 'mix-lab.html', 'style.css', 'mix-lab.css', 'manifest.webmanifest'];
 async function collect(relative) {
   for (const item of await readdir(path.join(root, relative), { withFileTypes: true })) {
     const next = path.join(relative, item.name);
@@ -21,18 +21,18 @@ async function collect(relative) {
 }
 await collect('assets');
 // Compile in memory first so invalid source cannot destroy the prior working bundle.
-for (const file of [...inputs, 'app.mjs', 'privacy.mjs']) {
+for (const file of [...inputs, 'app.mjs', 'privacy.mjs', 'mix-lab.mjs', 'audio-analysis-worker.mjs']) {
   if (!(await stat(path.join(root, file))).isFile()) throw new Error('Missing build input: ' + file);
 }
 const html = new Map();
-for (const [file, source] of [['index.html', 'app'], ['privacy.html', 'privacy']]) {
+for (const [file, source] of [['index.html', 'app'], ['privacy.html', 'privacy'], ['mix-lab.html', 'mix-lab']]) {
   const content = await readFile(path.join(root, file), 'utf8');
   const reference = `src="${source}.mjs"`;
   if (content.split(reference).length !== 2) throw new Error(`Expected exactly one ${reference} entry in ${file}.`);
   html.set(file, content.replace(reference, `src="${source}.js"`));
 }
 const compiled = await build({
-  absWorkingDir: root, entryPoints: { app: 'app.mjs', privacy: 'privacy.mjs' }, outdir: out,
+  absWorkingDir: root, entryPoints: { app: 'app.mjs', privacy: 'privacy.mjs', 'mix-lab': 'mix-lab.mjs', 'audio-analysis-worker': 'audio-analysis-worker.mjs', 'audio-render-check': 'lib/audio-render-check.mjs' }, outdir: out,
   bundle: true, splitting: true, format: 'esm', platform: 'browser',
   target: ['safari15.4', 'chrome90'], chunkNames: 'chunks/[name]-[hash]',
   write: false, metafile: true, sourcemap: false, logLevel: 'warning',
@@ -71,7 +71,7 @@ await record();
 files.sort((a, b) => a.path.localeCompare(b.path));
 await writeFile(path.join(out, 'build-manifest.json'), JSON.stringify({
   app: 'SCYL', appId: config.appId, provisionalAppId: true,
-  bundler: 'esbuild', entries: { app: 'app.js', privacy: 'privacy.js' }, files,
+  bundler: 'esbuild', entries: { app: 'app.js', privacy: 'privacy.js', 'mix-lab': 'mix-lab.js' }, files,
 }, null, 2) + '\n');
 console.log(`Packaged ${files.length} web assets into ${out}; JavaScript modules use .js MIME-safe names.`);
 console.log('Native bundle excludes server.mjs; /api/metadata remains optional.');
