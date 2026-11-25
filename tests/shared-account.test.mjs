@@ -14,10 +14,11 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 const jwt = payload => ['eyJhbGciOiJIUzI1NiJ9', Buffer.from(JSON.stringify(payload)).toString('base64url'), 'synthetic'].join('.');
 const PROFILE = { catId: 'domestic-shorthair', mbti: 'INTJ' };
 const withProfile = (user = A, profile = PROFILE) => ({ ...user, user_metadata: { unrelated: 'keep-private', scyl_profile_v1: profile } });
+const sharedProfile = (user = A, profile = PROFILE) => ({ userId: user.id, ...profile, confirmedAt: '2026-11-25T00:00:00Z' });
 
 function fixture(overrides = {}) {
   let listener = null, user = null, disconnected = false, clock = 1_000_000;
-  const calls = [], clientOptions = [], pending = [];
+  const calls = [], clientOptions = [], pending = [], profiles = new Map();
   const auth = {
     onAuthStateChange(callback) { listener = callback; return { data: { subscription: { unsubscribe() { disconnected = true; listener = null; } } } }; },
     async getUser() { calls.push(['getUser']); return user ? identified(user) : missing(); },
@@ -26,26 +27,37 @@ function fixture(overrides = {}) {
     async signOut(value) { calls.push(['signOut', value]); user = null; listener?.('SIGNED_OUT', null); return { error: null }; },
     ...overrides,
   };
-  const account = createSharedAccount({ url: URL, key: KEY, now: () => clock, createClient(...args) { clientOptions.push(args); return { auth }; } });
+  const client = { auth, async rpc(name, body) {
+    calls.push(['rpc', name, body]);
+    assert.equal(body.expected_actor, user?.id);
+    if (name === 'get_shared_profile') return { data: profiles.get(body.expected_actor) ?? null, error: null };
+    assert.equal(name, 'save_shared_profile');
+    if (profiles.has(body.expected_actor)) return { data: null, error: { message: 'SHARED_PROFILE_FIXED' } };
+    const saved = sharedProfile(user, { catId: body.cat_id, mbti: body.mbti_code });
+    profiles.set(body.expected_actor, saved); return { data: saved, error: null };
+  } };
+  const account = createSharedAccount({ url: URL, key: KEY, now: () => clock, createClient(...args) { clientOptions.push(args); return client; } });
   return {
-    account, auth, calls, clientOptions, pending,
+    account, auth, client, calls, clientOptions, pending,
     setUser(value) { user = value; },
+    setProfile(value, owner = A) { if (value === null) profiles.delete(owner.id); else profiles.set(owner.id, value); },
     advance(milliseconds) { clock += milliseconds; },
     emit(event, session) { listener?.(event, session); },
     get disconnected() { return disconnected; },
   };
 }
 
-test('restores only valid companion metadata from the verified account and isolates copies', async () => {
-  const f = fixture(); f.setUser(withProfile()); await f.account.start();
+test('공통 서버 프로필을 복원하며 별도 metadata와 수정된 사본을 신뢰하지 않는다', async () => {
+  const f = fixture(); f.setUser(withProfile(A, { catId: 'russian-blue', mbti: 'ENFP' })); f.setProfile(sharedProfile()); await f.account.start();
   const first = f.account.getState();
   assert.deepEqual(first.user.profile, { ...PROFILE, groupId: 'cat:domestic-shorthair' });
   assert.equal(JSON.stringify(first).includes('keep-private'), false);
   first.user.profile.catId = 'untrusted';
   assert.equal(f.account.getState().user.profile.catId, PROFILE.catId);
-  f.setUser(withProfile(B, { catId: '<script>', mbti: 'INTJ' })); await f.account.refresh();
+  f.setUser(withProfile(B)); await f.account.refresh();
   assert.equal(f.account.getState().user.id, B.id);
   assert.equal(f.account.getState().user.profile, undefined);
+  assert.equal(f.account.getState().profileUnavailable, false);
   f.account.dispose();
 });
 
@@ -60,22 +72,18 @@ test('profile requires authentication and valid explicit cat and MBTI selections
   f.account.dispose();
 });
 
-test('saves only private SCYL metadata and verifies persistence before unlocking the profile', async () => {
-  const f = fixture(); f.setUser(A); await f.account.start();
-  f.auth.updateUser = async value => {
-    assert.deepEqual(value, { data: { scyl_profile_v1: PROFILE } });
-    f.emit('USER_UPDATED', { user: withProfile() });
-    assert.equal(f.account.getState().busy, true);
-    assert.equal(f.account.getState().user.id, A.id);
-    assert.equal(f.account.getState().user.profile, undefined);
-    f.setUser(withProfile()); return identified(withProfile());
-  };
+test('공통 RPC로만 저장하고 별도 사용자 metadata나 로컬 프로필을 쓰지 않는다', async () => {
+  const f = fixture(); f.setUser(withProfile(A, { catId: 'russian-blue', mbti: 'ENFP' })); await f.account.start();
+  let metadataWrites = 0;
+  f.auth.updateUser = async () => { metadataWrites++; throw new Error('별도 metadata 저장 금지'); };
   const result = await f.account.saveProfile(PROFILE);
   assert.equal(result.ok, true);
   result.user.profile.mbti = 'ENFP';
   assert.equal(f.account.getState().user.profile.mbti, 'INTJ');
   assert.equal(f.account.getState().busy, false);
   assert.equal(f.calls.some(call => call[0] === 'request'), false);
+  assert.equal(metadataWrites, 0);
+  assert.deepEqual(f.calls.filter(call => call[0] === 'rpc' && call[1] === 'save_shared_profile'), [['rpc', 'save_shared_profile', { expected_actor: A.id, cat_id: PROFILE.catId, mbti_code: PROFILE.mbti }]]);
   await f.account.refresh();
   assert.equal(f.account.getState().user.profile.catId, PROFILE.catId);
   f.account.dispose();
@@ -83,7 +91,7 @@ test('saves only private SCYL metadata and verifies persistence before unlocking
 
 test('profile save blocks duplicate submits, retains authenticated identity on failure and allows retry', async () => {
   const held = deferred(), f = fixture(); f.setUser(A); await f.account.start();
-  f.auth.updateUser = () => held.promise;
+  const rpc = f.client.rpc; f.client.rpc = (name, body) => name === 'save_shared_profile' ? held.promise : rpc(name, body);
   const saving = f.account.saveProfile(PROFILE); await tick();
   assert.equal((await f.account.saveProfile(PROFILE)).code, 'busy');
   held.resolve({ error: { message: 'SECRET_BACKEND_DETAIL' } });
@@ -91,14 +99,14 @@ test('profile save blocks duplicate submits, retains authenticated identity on f
   assert.equal(f.account.getState().user.id, A.id);
   assert.equal(f.account.getState().busy, false);
   assert.equal(JSON.stringify(f.account.getState()).includes('SECRET_BACKEND_DETAIL'), false);
-  f.auth.updateUser = async () => { f.setUser(withProfile()); return identified(withProfile()); };
+  f.client.rpc = rpc;
   assert.equal((await f.account.saveProfile(PROFILE)).ok, true);
   f.account.dispose();
 });
 
-test('successful update response is insufficient when the server profile was not persisted', async () => {
+test('공통 저장 응답이 성공해도 서버 재조회에 선택이 없으면 완료하지 않는다', async () => {
   const f = fixture(); f.setUser(A); await f.account.start();
-  f.auth.updateUser = async () => identified(withProfile());
+  const rpc = f.client.rpc; f.client.rpc = (name, body) => name === 'save_shared_profile' ? Promise.resolve({ data: sharedProfile(), error: null }) : rpc(name, body);
   assert.equal((await f.account.saveProfile(PROFILE)).code, 'profile_save_failed');
   assert.equal(f.account.getState().user.profile, undefined);
   f.account.dispose();
@@ -107,20 +115,20 @@ test('successful update response is insufficient when the server profile was not
 test('profile save refuses an account switch before writing', async () => {
   let writes = 0;
   const f = fixture(); f.setUser(A); await f.account.start(); f.setUser(B);
-  f.auth.updateUser = async () => { writes++; return identified(withProfile(B)); };
+  f.client.rpc = async () => { writes++; return { data: sharedProfile(B), error: null }; };
   assert.equal((await f.account.saveProfile(PROFILE)).code, 'account_changed');
   assert.equal(writes, 0);
   assert.equal(f.account.getState().user, null);
   f.account.dispose();
 });
 
-test('logout waits for a pending profile session write and late completion cannot restore playback', async () => {
+test('공통 프로필 저장 중 로그아웃하면 늦은 응답으로 재생을 복구하지 않는다', async () => {
   const held = deferred(), f = fixture(); f.setUser(A); await f.account.start();
-  f.auth.updateUser = () => held.promise;
+  const rpc = f.client.rpc; f.client.rpc = (name, body) => name === 'save_shared_profile' ? held.promise : rpc(name, body);
   const saving = f.account.saveProfile(PROFILE); await tick();
   const loggingOut = f.account.signOut();
   assert.equal(f.calls.some(call => call[0] === 'signOut'), false);
-  held.resolve(identified(withProfile()));
+  held.resolve({ data: sharedProfile(), error: null });
   assert.equal((await saving).code, 'cancelled');
   assert.equal((await loggingOut).ok, true);
   assert.equal(f.account.getState().user, null);
@@ -130,13 +138,55 @@ test('logout waits for a pending profile session write and late completion canno
 
 test('disposed profile saves never publish a completed identity', async () => {
   const held = deferred(), f = fixture(); f.setUser(A); await f.account.start();
-  f.auth.updateUser = () => held.promise;
+  const rpc = f.client.rpc; f.client.rpc = (name, body) => name === 'save_shared_profile' ? held.promise : rpc(name, body);
   let notifications = 0; f.account.subscribe(() => notifications++);
   const saving = f.account.saveProfile(PROFILE); await tick();
   f.account.dispose(); const afterDispose = notifications;
-  held.resolve(identified(withProfile()));
+  held.resolve({ data: sharedProfile(), error: null });
   assert.equal((await saving).code, 'cancelled');
   assert.equal(notifications, afterDispose);
+});
+
+test('공통 프로필 조회 실패는 로그인 유지·덮어쓰기 차단 후 재조회로 복구한다', async () => {
+  const f = fixture(); f.setUser(withProfile()); const rpc = f.client.rpc;
+  f.client.rpc = async () => ({ data: null, error: { message: 'PRIVATE_SERVER_DETAIL' } });
+  const result = await f.account.start();
+  assert.equal(result.ok, true); assert.equal(result.profileUnavailable, true);
+  assert.deepEqual(f.account.getState().user, A); assert.equal(f.account.getState().phase, 'signed-in');
+  assert.equal(f.account.getState().profileUnavailable, true); assert.equal(f.account.getState().errorCode, 'profile_unavailable');
+  assert.equal((await f.account.saveProfile(PROFILE)).code, 'profile_unavailable');
+  assert.equal(f.calls.some(call => call[0] === 'request'), false);
+  assert.equal(JSON.stringify(f.account.getState()).includes('PRIVATE_SERVER_DETAIL'), false);
+  f.setProfile(sharedProfile()); f.client.rpc = rpc; await f.account.refresh();
+  assert.equal(f.account.getState().profileUnavailable, false); assert.equal(f.account.getState().user.profile.catId, PROFILE.catId);
+  f.account.dispose();
+});
+
+test('다른 회원 또는 잘못된 공통 프로필 응답을 선택 없음으로 취급하지 않는다', async () => {
+  for (const data of [sharedProfile(B), sharedProfile(A, { catId: 'unknown', mbti: 'INTJ' }), undefined]) {
+    const f = fixture(); f.setUser(A); f.client.rpc = async () => ({ data, error: null }); await f.account.start();
+    assert.equal(f.account.getState().profileUnavailable, true); assert.deepEqual(f.account.getState().user, A);
+    assert.equal((await f.account.saveProfile(PROFILE)).code, 'profile_unavailable'); f.account.dispose();
+  }
+});
+
+test('다른 앱에서 이미 확정한 선택과 충돌하면 기존 공통 프로필을 복원한다', async () => {
+  const f = fixture(); f.setUser(A); await f.account.start();
+  const confirmed = { catId: 'russian-blue', mbti: 'ENFP' }; f.setProfile(sharedProfile(A, confirmed));
+  const result = await f.account.saveProfile(PROFILE);
+  assert.equal(result.ok, true); assert.deepEqual(result.user.profile, { ...confirmed, groupId: 'cat:russian-blue' });
+  assert.equal(f.account.getState().profileUnavailable, false); assert.match(f.account.getState().message, /이미 확정/);
+  await f.account.refresh(); assert.equal(f.account.getState().user.profile.catId, confirmed.catId); f.account.dispose();
+});
+
+test('서버 프로필 조회가 늦게 끝나도 로그아웃과 화면 폐기를 되돌리지 않는다', async () => {
+  for (const ending of ['logout', 'dispose']) {
+    const f = fixture(), held = deferred(); f.setUser(A); f.client.rpc = () => held.promise;
+    const started = f.account.start(); await tick();
+    if (ending === 'logout') await f.account.signOut(); else f.account.dispose();
+    held.resolve({ data: sharedProfile(), error: null }); await started;
+    assert.equal(f.account.getState().user, null); f.account.dispose();
+  }
 });
 
 test('configuration accepts only HTTPS origins and public anon/publishable keys', () => {
