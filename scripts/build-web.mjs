@@ -12,7 +12,7 @@ const config = JSON.parse(await readFile(path.join(root, 'capacitor.config.json'
 if (config.webDir !== 'www' || path.dirname(out) !== root || path.basename(out) !== 'www') {
   throw new Error('Refusing to package outside the project-owned www directory.');
 }
-const inputs = ['index.html', 'privacy.html', 'mix-lab.html', 'auth.html', 'style.css', 'mix-lab.css', 'account.css', 'manifest.webmanifest'];
+const inputs = ['index.html', 'privacy.html', 'mix-lab.html', 'auth.html', 'theme.css', 'style.css', 'mix-lab.css', 'account.css', 'manifest.webmanifest'];
 async function collect(relative) {
   for (const item of await readdir(path.join(root, relative), { withFileTypes: true })) {
     const next = path.join(relative, item.name);

@@ -1,0 +1,22 @@
+/* SCYL reference palette. Keep all app surfaces on these shared tokens.
+   Source: original player styles (db78a7c / 751a354); see docs/design-system.md. */
+:root{
+  color-scheme:light;
+  --font-ui:Arial,"Helvetica Neue","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --canvas:#deded9;
+  --paper:#f4f3ee;
+  --surface:#f8f7f3;
+  --ink:#30312d;
+  --muted:#797a72;
+  --line:#d7d6cf;
+  --accent:#e75c2b;
+  --on-ink:#fff;
+  --danger:#b34422;
+  --backdrop:#30312d80;
+  --shadow:#30312d26;
+  --wave-current:var(--accent);
+  --wave-next:var(--muted);
+  --wave-grid:var(--line);
+  font-family:var(--font-ui);
+  font-synthesis:none;
+}

@@ -234,6 +234,11 @@ addEventListener('pageshow', event => { if (event.persisted) void playbackLifecy
 void playbackLifecycle.start().catch(() => {});
 
 const canvas = $('live-wave'), pen = canvas.getContext('2d');
+// Read the same SCYL palette as the visible legend; keep color out of audio logic.
+const themeStyle = getComputedStyle(document.documentElement);
+const waveColors = Object.fromEntries(['current', 'next', 'grid'].map(role => [role, themeStyle.getPropertyValue(`--wave-${role}`).trim()]));
+waveColors.ink = themeStyle.getPropertyValue('--ink').trim();
+waveColors.paper = themeStyle.getPropertyValue('--paper').trim();
 waveTransport = createWaveformTransport({
   element: canvas, getEngine: () => engine,
   getIdentity: () => `${generation}:${tracks.map(track => track.id).join('|')}`,
@@ -294,8 +299,8 @@ function drawWave(snapshot) {
   if (plan && plan.fadeDuration > 0) {
     const left = Math.max(0, center + fadeStart * scale), right = Math.min(width, center + fadeEnd * scale);
     if (right > left) {
-      pen.fillStyle = '#30312d0c'; pen.fillRect(left, top, right - left, baseline - top);
-      pen.strokeStyle = '#aeb2a4'; pen.lineWidth = 1;
+      pen.save(); pen.fillStyle = waveColors.ink; pen.globalAlpha = .05; pen.fillRect(left, top, right - left, baseline - top); pen.restore();
+      pen.strokeStyle = waveColors.grid; pen.lineWidth = 1;
       pen.beginPath(); pen.moveTo(left, top); pen.lineTo(left, baseline); pen.moveTo(right, top); pen.lineTo(right, baseline); pen.stroke();
     }
   }
@@ -329,13 +334,13 @@ function drawWave(snapshot) {
       points.push([x, baseline - level * amplitude]);
     }
     trace(points); pen.lineTo(width, baseline); pen.lineTo(0, baseline); pen.closePath();
-    pen.fillStyle = i ? '#75806966' : '#e75c2b70'; pen.fill();
-    trace(points); pen.strokeStyle = i ? '#657159' : '#d55226'; pen.lineWidth = 2.2; pen.lineJoin = 'round'; pen.lineCap = 'round';
+    pen.save(); pen.fillStyle = i ? waveColors.next : waveColors.current; pen.globalAlpha = i ? .4 : .44; pen.fill(); pen.restore();
+    trace(points); pen.strokeStyle = i ? waveColors.next : waveColors.current; pen.lineWidth = 2.2; pen.lineJoin = 'round'; pen.lineCap = 'round';
     pen.stroke();
   }
-  pen.strokeStyle = '#f4f3ee'; pen.lineWidth = 5;
+  pen.strokeStyle = waveColors.paper; pen.lineWidth = 5;
   pen.beginPath(); pen.moveTo(center, top - 4); pen.lineTo(center, baseline); pen.stroke();
-  pen.strokeStyle = '#30312d'; pen.lineWidth = 1.5;
+  pen.strokeStyle = waveColors.ink; pen.lineWidth = 1.5;
   pen.beginPath(); pen.moveTo(center, top - 4); pen.lineTo(center, baseline); pen.stroke();
 }
 function frame() {
