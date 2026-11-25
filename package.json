@@ -1,6 +1,6 @@
 {
   "name": "scyl",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "private": true,
   "type": "module",
   "description": "SCYL. Songs Change Your Life. Two portrait dials, YouTube listening sets, and automatic mixing for local audio files.",

@@ -67,7 +67,34 @@ test('이전 계정 확인과 이전 링크의 늦은 완료는 새 인증 화�
   entry.options.onSignedIn(); first.options.onComplete();
   assert.equal(h.calls.completed, 0); assert.equal(first.disposed, true);
   const latest = h.calls.callbacks[1]; latest.options.onComplete(); latest.options.onComplete();
+  assert.equal(h.calls.completed, 0); assert.equal(h.calls.entries.length, 2);
+  h.calls.entries[1].options.onSignedIn(); h.calls.entries[1].options.onSignedIn();
   assert.equal(h.calls.completed, 1); h.page.dispose();
+});
+
+test('메일 확인의 기본 선택은 같은 회원의 비밀번호·프로필 단계가 끝나야 최종 이동한다', () => {
+  const h = setup(link('setup'));
+  h.calls.callbacks[0].options.onComplete({ passwordSetup: true, expectedUserId: 'verified-user-id' });
+  const entry = h.calls.entries[0];
+  assert.equal(entry.options.passwordSetup, true); assert.equal(entry.options.expectedUserId, 'verified-user-id');
+  assert.equal(h.calls.callbacks[0].disposed, true); assert.equal(h.calls.completed, 0);
+  entry.options.onSignedIn(); assert.equal(h.calls.completed, 1); h.page.dispose();
+});
+
+test('기존 비밀번호 선택도 확인된 회원 UUID를 유지하여 프로필 확인에 전달한다', () => {
+  const h = setup(link('existing'));
+  h.calls.callbacks[0].options.onComplete({ passwordSetup: false, expectedUserId: 'verified-user-id' });
+  assert.equal(h.calls.entries[0].options.passwordSetup, false);
+  assert.equal(h.calls.entries[0].options.expectedUserId, 'verified-user-id'); assert.equal(h.calls.completed, 0); h.page.dispose();
+});
+
+test('비밀번호 단계 중 새 인증 링크가 열리면 이전 단계의 늦은 완료를 무시한다', () => {
+  const h = setup(link('first'));
+  h.calls.callbacks[0].options.onComplete({ passwordSetup: true, expectedUserId: 'first-user' });
+  const previous = h.calls.entries[0]; h.navigate(link('second'));
+  previous.options.onSignedIn(); assert.equal(h.calls.completed, 0); assert.equal(previous.disposed, true);
+  h.calls.callbacks[1].options.onComplete({ passwordSetup: true, expectedUserId: 'second-user' });
+  assert.equal(h.calls.entries[1].options.expectedUserId, 'second-user'); h.page.dispose();
 });
 
 test('지연 해시 이벤트와 깨끗한 주소의 복원 이벤트는 인증을 중복 처리하지 않는다', () => {
