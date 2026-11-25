@@ -12,6 +12,8 @@ const identified = user => ({ data: { user }, error: null });
 const tick = () => new Promise(resolve => setTimeout(resolve, 5));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const jwt = payload => ['eyJhbGciOiJIUzI1NiJ9', Buffer.from(JSON.stringify(payload)).toString('base64url'), 'synthetic'].join('.');
+const PROFILE = { catId: 'domestic-shorthair', mbti: 'INTJ' };
+const withProfile = (user = A, profile = PROFILE) => ({ ...user, user_metadata: { unrelated: 'keep-private', scyl_profile_v1: profile } });
 
 function fixture(overrides = {}) {
   let listener = null, user = null, disconnected = false, clock = 1_000_000;
@@ -33,6 +35,109 @@ function fixture(overrides = {}) {
     get disconnected() { return disconnected; },
   };
 }
+
+test('restores only valid companion metadata from the verified account and isolates copies', async () => {
+  const f = fixture(); f.setUser(withProfile()); await f.account.start();
+  const first = f.account.getState();
+  assert.deepEqual(first.user.profile, { ...PROFILE, groupId: 'cat:domestic-shorthair' });
+  assert.equal(JSON.stringify(first).includes('keep-private'), false);
+  first.user.profile.catId = 'untrusted';
+  assert.equal(f.account.getState().user.profile.catId, PROFILE.catId);
+  f.setUser(withProfile(B, { catId: '<script>', mbti: 'INTJ' })); await f.account.refresh();
+  assert.equal(f.account.getState().user.id, B.id);
+  assert.equal(f.account.getState().user.profile, undefined);
+  f.account.dispose();
+});
+
+test('profile requires authentication and valid explicit cat and MBTI selections', async () => {
+  const f = fixture(); await f.account.start();
+  assert.equal((await f.account.saveProfile(PROFILE)).code, 'not_signed_in');
+  f.setUser(A); await f.account.refresh();
+  for (const profile of [null, {}, { ...PROFILE, catId: 'unknown' }, { ...PROFILE, mbti: 'intj' }, { catId: PROFILE.catId }]) {
+    assert.equal((await f.account.saveProfile(profile)).code, 'invalid_profile');
+  }
+  assert.equal(f.account.getState().user.profile, undefined);
+  f.account.dispose();
+});
+
+test('saves only private SCYL metadata and verifies persistence before unlocking the profile', async () => {
+  const f = fixture(); f.setUser(A); await f.account.start();
+  f.auth.updateUser = async value => {
+    assert.deepEqual(value, { data: { scyl_profile_v1: PROFILE } });
+    f.emit('USER_UPDATED', { user: withProfile() });
+    assert.equal(f.account.getState().busy, true);
+    assert.equal(f.account.getState().user.id, A.id);
+    assert.equal(f.account.getState().user.profile, undefined);
+    f.setUser(withProfile()); return identified(withProfile());
+  };
+  const result = await f.account.saveProfile(PROFILE);
+  assert.equal(result.ok, true);
+  result.user.profile.mbti = 'ENFP';
+  assert.equal(f.account.getState().user.profile.mbti, 'INTJ');
+  assert.equal(f.account.getState().busy, false);
+  assert.equal(f.calls.some(call => call[0] === 'request'), false);
+  await f.account.refresh();
+  assert.equal(f.account.getState().user.profile.catId, PROFILE.catId);
+  f.account.dispose();
+});
+
+test('profile save blocks duplicate submits, retains authenticated identity on failure and allows retry', async () => {
+  const held = deferred(), f = fixture(); f.setUser(A); await f.account.start();
+  f.auth.updateUser = () => held.promise;
+  const saving = f.account.saveProfile(PROFILE); await tick();
+  assert.equal((await f.account.saveProfile(PROFILE)).code, 'busy');
+  held.resolve({ error: { message: 'SECRET_BACKEND_DETAIL' } });
+  assert.equal((await saving).code, 'profile_save_failed');
+  assert.equal(f.account.getState().user.id, A.id);
+  assert.equal(f.account.getState().busy, false);
+  assert.equal(JSON.stringify(f.account.getState()).includes('SECRET_BACKEND_DETAIL'), false);
+  f.auth.updateUser = async () => { f.setUser(withProfile()); return identified(withProfile()); };
+  assert.equal((await f.account.saveProfile(PROFILE)).ok, true);
+  f.account.dispose();
+});
+
+test('successful update response is insufficient when the server profile was not persisted', async () => {
+  const f = fixture(); f.setUser(A); await f.account.start();
+  f.auth.updateUser = async () => identified(withProfile());
+  assert.equal((await f.account.saveProfile(PROFILE)).code, 'profile_save_failed');
+  assert.equal(f.account.getState().user.profile, undefined);
+  f.account.dispose();
+});
+
+test('profile save refuses an account switch before writing', async () => {
+  let writes = 0;
+  const f = fixture(); f.setUser(A); await f.account.start(); f.setUser(B);
+  f.auth.updateUser = async () => { writes++; return identified(withProfile(B)); };
+  assert.equal((await f.account.saveProfile(PROFILE)).code, 'account_changed');
+  assert.equal(writes, 0);
+  assert.equal(f.account.getState().user, null);
+  f.account.dispose();
+});
+
+test('logout waits for a pending profile session write and late completion cannot restore playback', async () => {
+  const held = deferred(), f = fixture(); f.setUser(A); await f.account.start();
+  f.auth.updateUser = () => held.promise;
+  const saving = f.account.saveProfile(PROFILE); await tick();
+  const loggingOut = f.account.signOut();
+  assert.equal(f.calls.some(call => call[0] === 'signOut'), false);
+  held.resolve(identified(withProfile()));
+  assert.equal((await saving).code, 'cancelled');
+  assert.equal((await loggingOut).ok, true);
+  assert.equal(f.account.getState().user, null);
+  assert.equal(f.account.getState().phase, 'signed-out');
+  f.account.dispose();
+});
+
+test('disposed profile saves never publish a completed identity', async () => {
+  const held = deferred(), f = fixture(); f.setUser(A); await f.account.start();
+  f.auth.updateUser = () => held.promise;
+  let notifications = 0; f.account.subscribe(() => notifications++);
+  const saving = f.account.saveProfile(PROFILE); await tick();
+  f.account.dispose(); const afterDispose = notifications;
+  held.resolve(identified(withProfile()));
+  assert.equal((await saving).code, 'cancelled');
+  assert.equal(notifications, afterDispose);
+});
 
 test('configuration accepts only HTTPS origins and public anon/publishable keys', () => {
   assert.deepEqual(validateSharedAccountConfig({ url: URL + '/', key: KEY }), { url: URL, key: KEY });
