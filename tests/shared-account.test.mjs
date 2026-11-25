@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSharedAccount, validateSharedAccountConfig } from '../lib/shared-account.mjs';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 const URL = 'https://test-project.supabase.co';
 const KEY = 'sb_publishable_only_synthetic_test_credential';
@@ -13,7 +14,7 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 const jwt = payload => ['eyJhbGciOiJIUzI1NiJ9', Buffer.from(JSON.stringify(payload)).toString('base64url'), 'synthetic'].join('.');
 
 function fixture(overrides = {}) {
-  let listener = null, user = null, disconnected = false;
+  let listener = null, user = null, disconnected = false, clock = 1_000_000;
   const calls = [], clientOptions = [], pending = [];
   const auth = {
     onAuthStateChange(callback) { listener = callback; return { data: { subscription: { unsubscribe() { disconnected = true; listener = null; } } } }; },
@@ -23,10 +24,11 @@ function fixture(overrides = {}) {
     async signOut(value) { calls.push(['signOut', value]); user = null; listener?.('SIGNED_OUT', null); return { error: null }; },
     ...overrides,
   };
-  const account = createSharedAccount({ url: URL, key: KEY, createClient(...args) { clientOptions.push(args); return { auth }; } });
+  const account = createSharedAccount({ url: URL, key: KEY, now: () => clock, createClient(...args) { clientOptions.push(args); return { auth }; } });
   return {
     account, auth, calls, clientOptions, pending,
     setUser(value) { user = value; },
+    advance(milliseconds) { clock += milliseconds; },
     emit(event, session) { listener?.(event, session); },
     get disconnected() { return disconnected; },
   };
@@ -51,6 +53,18 @@ test('SCYL owns a separate persistent session and never consumes URL credentials
   assert.equal(f.clientOptions[0][2].auth.detectSessionInUrl, false);
   assert.equal(f.clientOptions[0][2].auth.flowType, 'pkce');
   f.account.dispose();
+});
+
+test('web implicit flow is opt-in, keeps URL detection disabled, and rejects unsupported flow types', () => {
+  const f = fixture(); let options;
+  const account = createSharedAccount({ url: URL, key: KEY, flowType: 'implicit', createClient(_url, _key, value) { options = value; return { auth: f.auth }; } });
+  assert.equal(options.auth.flowType, 'implicit');
+  assert.equal(options.auth.detectSessionInUrl, false);
+  assert.equal(options.auth.storageKey, 'scyl-auth-v1');
+  for (const flowType of ['oauth', '', null, 1, {}, 'PKCE']) {
+    assert.throws(() => createSharedAccount({ url: URL, key: KEY, flowType, createClient: () => ({ auth: f.auth }) }), error => error.code === 'invalid_auth_flow');
+  }
+  account.dispose(); f.account.dispose();
 });
 
 test('starting without a session is ready and sends no email', async () => {
@@ -97,6 +111,7 @@ test('duplicate code requests are blocked and the shared email OTP signup API is
   f.auth.signInWithOtp = value => { f.calls.push(['request', value]); return held.promise; };
   const first = f.account.requestCode(' one@example.test ');
   assert.equal((await f.account.requestCode(B.email)).code, 'busy');
+  await tick();
   assert.deepEqual(f.calls.find(call => call[0] === 'request')[1], { email: A.email, options: { shouldCreateUser: true } });
   held.resolve({ error: null }); assert.equal((await first).ok, true);
   assert.equal(f.account.getState().phase, 'code-sent');
@@ -121,6 +136,7 @@ test('mail configuration and rate limit errors are actionable Korean messages wi
   assert.equal(denied.code, 'email_address_not_authorized');
   assert.match(denied.message, /발송 설정/);
   f.auth.signInWithOtp = async () => ({ error: { status: 429, message: 'SECRET_DATA' } });
+  f.advance(60_001);
   assert.equal((await f.account.requestCode(A.email)).code, 'over_request_rate_limit');
   assert.equal(JSON.stringify(f.account.getState()).includes('SECRET_DATA'), false);
   f.account.dispose();
@@ -210,6 +226,7 @@ test('changing email resets the previous challenge but cannot interrupt an SDK v
   assert.equal(f.account.changeEmail().ok, true);
   assert.equal(f.account.getState().email, '');
   assert.equal((await f.account.verifyCode('123456')).code, 'code_not_requested');
+  f.advance(60_001);
   await f.account.requestCode(B.email);
   f.auth.verifyOtp = () => held.promise;
   const pending = f.account.verifyCode('123456');
@@ -311,4 +328,96 @@ test('failed logout ignores later refresh events until local logout succeeds', a
   assert.equal(f.account.getState().user, null);
   assert.equal((await f.account.refresh()).code, 'cancelled');
   f.account.dispose();
+});
+
+function memoryStorage() {
+  const values = new Map();
+  return { getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } };
+}
+
+test('local request cooldown blocks duplicate network sends but never blocks an existing approval link', async () => {
+  const f = fixture(); await f.account.start(); await f.account.requestCode(A.email);
+  assert.equal(f.account.getState().requestWaitSeconds, 60);
+  assert.equal((await f.account.requestCode(A.email)).code, 'email_request_cooldown');
+  assert.equal(f.calls.filter(call => call[0] === 'request').length, 1);
+  f.auth.exchangeCodeForSession = async () => { f.setUser(A); return { data: { user: A } }; };
+  assert.equal((await f.account.completeLink('00000000-0000-4000-8000-000000000099')).ok, true);
+  f.account.dispose();
+});
+
+test('request cooldown survives a fresh controller without carrying any email or token', async () => {
+  const storage = memoryStorage(), f = fixture();
+  let clock = 1_000_000;
+  const make = () => createSharedAccount({ url: URL, key: KEY, storage, now: () => clock, createClient: () => ({ auth: f.auth }) });
+  const first = make(); await first.start(); await first.requestCode(A.email); first.dispose();
+  const second = make(); await second.start();
+  assert.equal(second.getState().requestWaitSeconds, 60);
+  assert.equal((await second.requestCode(A.email)).code, 'email_request_cooldown');
+  assert.equal(storage.getItem('scyl-auth-v1-email-retry-at'), '1060000');
+  clock += 60_001;
+  assert.equal((await second.requestCode(A.email)).ok, true);
+  second.dispose(); f.account.dispose();
+});
+
+test('the installed SDK restores a previously valid verifier after a synthetic 429 response', async () => {
+  const storage = memoryStorage(); let clock = 1_000_000, requests = 0, sdk;
+  const account = createSharedAccount({ url: URL, key: KEY, storage, now: () => clock,
+    createClient(url, key, options) {
+      sdk = createSupabaseClient(url, key, { ...options, auth: { ...options.auth, autoRefreshToken: false }, global: { async fetch(request) {
+        assert.equal(new globalThis.URL(request).pathname, '/auth/v1/otp');
+        requests++;
+        return requests === 1 ? new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+          : new Response(JSON.stringify({ code: 'over_email_send_rate_limit', error_code: 'over_email_send_rate_limit', msg: 'synthetic limit' }), { status: 429, headers: { 'content-type': 'application/json' } });
+      } } });
+      return sdk;
+    },
+  });
+  await account.start(); assert.equal((await account.requestCode(A.email)).ok, true);
+  const previous = storage.getItem('scyl-auth-v1-code-verifier'); assert.equal(typeof previous, 'string');
+  clock += 60_001;
+  const limited = await account.requestCode(A.email);
+  assert.equal(limited.code, 'over_email_send_rate_limit');
+  assert.equal(storage.getItem('scyl-auth-v1-code-verifier') === previous, true);
+  assert.equal(requests, 2);
+  account.dispose(); await sdk.auth.stopAutoRefresh();
+});
+
+test('a failed request cannot roll back another operation verifier or a subsequent logout', async () => {
+  for (const change of ['other-writer', 'logout']) {
+    const storage = memoryStorage(); storage.setItem('scyl-auth-v1-code-verifier', 'previous-synthetic');
+    const f = fixture(), held = deferred(); let wrapped;
+    const account = createSharedAccount({ url: URL, key: KEY, storage, createClient(_url, _key, options) {
+      wrapped = options.auth.storage;
+      return { auth: { ...f.auth, async signInWithOtp() {
+        await wrapped.setItem('scyl-auth-v1-code-verifier', 'new-synthetic'); await held.promise;
+        return { error: { code: 'over_email_send_rate_limit' } };
+      }, async signOut() { await wrapped.removeItem('scyl-auth-v1-code-verifier'); return { error: null }; } } };
+    } });
+    await account.start(); const pending = account.requestCode(A.email); await tick();
+    if (change === 'other-writer') storage.setItem('scyl-auth-v1-code-verifier', 'another-operation');
+    else await account.signOut();
+    held.resolve(); await pending;
+    assert.equal(storage.getItem('scyl-auth-v1-code-verifier'), change === 'other-writer' ? 'another-operation' : null);
+    account.dispose(); f.account.dispose();
+  }
+});
+
+test('missing PKCE verifier produces an explicit browser/app mismatch explanation without sending email', async () => {
+  const f = fixture(); await f.account.start();
+  f.auth.exchangeCodeForSession = async () => ({ error: { code: 'pkce_code_verifier_not_found', message: 'raw private data' } });
+  const result = await f.account.completeLink('00000000-0000-4000-8000-000000000099');
+  assert.equal(result.code, 'pkce_code_verifier_not_found');
+  assert.match(result.message, /인증을 시작한 기록/);
+  assert.match(result.message, /요청했던 Safari·Chrome 또는 SCYL 앱/);
+  assert.equal(f.calls.some(call => call[0] === 'request'), false);
+  assert.equal(f.account.getState().user, null); f.account.dispose();
+});
+
+test('disposing the account tears down SDK resources exactly once without logging the member out', async () => {
+  let closed = 0;
+  const f = fixture({ async dispose() { closed++; } }); f.setUser(A); await f.account.start();
+  await f.account.dispose(); await f.account.dispose();
+  assert.equal(closed, 1);
+  assert.equal(f.calls.some(call => call[0] === 'signOut'), false);
+  assert.equal(f.disconnected, true);
 });
