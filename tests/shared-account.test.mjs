@@ -61,6 +61,15 @@ test('공통 서버 프로필을 복원하며 별도 metadata와 수정된 사�
   f.account.dispose();
 });
 
+test('기존 MEOW의 변형 품종 ID는 표시 그룹을 붙여도 원본 그대로 보존한다', async () => {
+  const f = fixture(); f.setUser(A);
+  f.setProfile(sharedProfile(A, { catId: 'maine-coon-polydactyl', mbti: 'ISTJ' }));
+  await f.account.start();
+  assert.deepEqual(f.account.getState().user.profile, { catId: 'maine-coon-polydactyl', mbti: 'ISTJ', groupId: 'cat:maine-coon' });
+  assert.equal(f.calls.some(call => call[1] === 'save_shared_profile'), false);
+  f.account.dispose();
+});
+
 test('profile requires authentication and valid explicit cat and MBTI selections', async () => {
   const f = fixture(); await f.account.start();
   assert.equal((await f.account.saveProfile(PROFILE)).code, 'not_signed_in');
