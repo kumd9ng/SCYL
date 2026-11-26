@@ -26,3 +26,21 @@ body{min-width:280px}.wheel-control{font-size:11px}.deck-heading{font-size:12px}
 @media(max-width:500px){.artwork-jog{--jog-size:clamp(160px,20svh,178px)}.artwork-jog .jog-art{inset:6px}.artwork-jog .art-placeholder{padding-bottom:19px}.art-grille{height:22px;top:18px}.fx-center{width:49px;height:49px;font-size:24px}.wave-transition{margin:0 0 10px;padding:3px 0 5px}.wave-stage{height:43px}.wave-heading{height:21px}.wave-caption{font-size:10px;margin-top:3px}.deck-next .deck-heading{min-height:25px}.deck-next .jog-wrap{margin-top:12px;margin-bottom:9px}.deck-current .jog-wrap{margin-bottom:11px}.device-footer{padding-top:7px}.transport-play{width:47px;height:47px}.device-nav{padding-top:8px}}
 
 .source-mode{display:flex;gap:5px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:3px;margin:0 0 16px;font-size:12px}.source-mode>*{flex:1;text-align:center;padding:10px 4px}.source-mode [aria-current]{background:#dedfd5;border-radius:5px}.source-mode a{color:#b64d26;text-decoration:none}.wave-caption{font-size:12px;line-height:1.5}.wave-caption a{color:#b64d26;text-underline-offset:3px}
+
+/* Both original players remain fully visible and operable during overlap. */
+.source-section .players{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+.source-card{min-width:0}
+.source-card .player-shell{background:var(--canvas)}
+.source-card .player-shell iframe{display:block}
+.source-card .source-label,.source-card .source-open{color:var(--ink)}
+.source-mode a,.wave-caption a{color:var(--accent)}
+.source-mode [aria-current]{background:var(--canvas)}
+.wave-heading>span,.wave-caption{color:var(--muted)}
+body[data-youtube-overlap="true"] .player-device{width:min(100%,760px)}
+.source-section[data-overlap="true"] .players{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+@media(max-width:600px){
+  body[data-youtube-overlap="true"] .player-device{width:min(100%,438px)}
+  .source-section[data-overlap="true"] .players{grid-template-columns:minmax(0,1fr);gap:16px}
+  .source-section[data-overlap="true"] .player-shell{height:200px;min-height:200px}
+  .source-section[data-overlap="true"] .source-label{margin-top:0}
+}

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f4f3ee">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <title>SCYL · 자동 믹싱</title>
+  <title>SCYL · 파일로 자동 믹싱</title>
   <link rel="icon" href="assets/scyl-logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="mix-lab.css">
   <link rel="stylesheet" href="account.css">
@@ -15,14 +15,14 @@
 <body>
 <main class="lab-device">
   <header><img src="assets/scyl-logo.svg" width="32" height="32" alt=""><div><strong>SCYL.</strong><span>Songs Change Your Life.</span></div></header>
-  <nav class="lab-source-mode" aria-label="음원 선택"><a href="index.html">YouTube 듣기</a><span aria-current="page">자동 믹싱</span></nav>
+  <nav class="lab-source-mode" aria-label="음원 선택"><a href="index.html">YouTube 듣기</a><span aria-current="page">파일로 자동 믹싱</span></nav>
   <section id="apple-music-section" aria-label="Apple Music 음악 검색"></section>
   <section class="local-file-section" aria-label="기기의 음악 파일">
-  <p class="lab-notice" id="source-note">기기의 음악 파일로 10% 겹침 재생.<br>속도는 그대로, 선택한 파일은 서버에 업로드하지 않습니다.</p>
+  <p class="lab-notice" id="source-note">기기의 음악 파일로 비트매칭.<br>선택한 파일은 서버에 업로드하지 않습니다.</p>
   <div class="source-actions"><button id="choose-files">음악 파일 선택</button><button id="demo-load">합성 데모 듣기</button><input id="audio-files" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" multiple hidden></div>
   <div class="wave-guide">
     <div class="curve-key" aria-hidden="true"><span>현재 곡</span><span>다음 곡</span></div>
-    <p id="wave-detail">현재 곡의 마지막 10%에서 다음 곡을 겹쳐 재생합니다. 속도는 바꾸지 않습니다.</p>
+    <p id="wave-detail">두 곡의 BPM과 박자 위치를 맞춰 이어 재생합니다.</p>
     <p id="wave-help">곡선을 좌우로 밀어 앞뒤로 이동 · 방향키는 5초 이동</p>
   </div>
   <section class="lab-deck" aria-labelledby="title-a">
@@ -42,9 +42,9 @@
     <div class="deck-time"><output id="time-b">0:00</output><output id="gain-b">0%</output></div>
   </section>
   <div class="lab-controls"><button id="demo-play" class="primary" disabled>세트 재생</button><button id="pause" disabled>일시정지</button><button id="stop" disabled>정지</button></div>
-  <p id="engine-message" role="status" aria-live="polite">두 곡 이상 선택하면 현재 곡의 마지막 10%에서 다음 곡이 시작됩니다.</p>
+  <p id="engine-message" role="status" aria-live="polite">두 곡 이상 선택하면 박자를 분석해 자동으로 이어 재생합니다.</p>
   <details id="set-list"><summary id="queue-summary">세트 · 0곡</summary><ol id="file-queue"></ol></details>
-  <p class="lab-footnote">두 곡을 원래 속도로 재생하며 볼륨을 부드럽게 교차합니다. 다음 곡이 짧거나 늦게 준비되면 가능한 구간만 겹칩니다. 파일은 곡당 60MB·12분까지, 새로고침하면 다시 선택해야 합니다.</p>
+  <p class="lab-footnote">박자 분석이 가능한 곡은 다음 곡의 속도를 조절해 맞춥니다. 속도 조절 시 음높이도 변할 수 있습니다. 박자가 불확실하거나 속도 차이가 크면 볼륨만 부드럽게 교차합니다. 파일은 곡당 60MB·12분까지, 새로고침하면 다시 선택해야 합니다.</p>
   </section>
 </main>
 <dialog id="fx-sheet"><form method="dialog"><header><strong id="fx-title">FX</strong><button aria-label="닫기">닫기</button></header></form><label>필터 <input id="filter" type="range" min="200" max="20000" value="20000" step="100"></label><label>에코 <input id="echo" type="range" min="0" max=".45" value="0" step=".01"></label><p>현재 재생 소리에 실제로 적용됩니다.</p></dialog>

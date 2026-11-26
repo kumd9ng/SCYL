@@ -1,5 +1,6 @@
 import { parseYouTubeUrl, formatTime } from './lib/youtube.mjs';
-import { TRANSITION_MODES, gainForFade, shouldStartTransition } from './lib/transition.mjs';
+import { TRANSITION_MODES } from './lib/transition.mjs';
+import { createYouTubeOverlapController } from './lib/youtube-overlap.mjs';
 import { createNativeLifecycleController } from './lib/native-lifecycle.mjs';
 import { mountAccount } from './lib/account-ui.mjs';
 
@@ -8,11 +9,11 @@ const STORAGE_KEY = 'scyl.session.v1';
 const PLAYING = 1, PAUSED = 2, BUFFERING = 3, CUED = 5, ENDED = 0;
 const slots = [0, 1].map(index => ({ index, player: null, ready: false, key: null, gain: 1, failed: false }));
 let queue = [], currentKey = null, activeSlot = 0, repeat = false, mode = 'balanced', volume = 80;
-let playedIds = new Set(), fade = null, awaitingFade = null, switching = false, generation = 0;
+let playedIds = new Set(), switching = false, generation = 0;
 let seeking = false, playing = false, status = '플레이어 연결 중', apiFailed = false;
 let seekValue = 0, jogDrag = null;
 let exporting = false;
-let toastTimer, playWaitTimer, storageWarned = false, lastTime = null, lastTick = performance.now();
+let toastTimer, playWaitTimer, storageWarned = false, lastTime = null;
 let apiTimeout, youtubeConsent = false, youtubeStarted = false, storageCleared = false;
 let needsNativePlay = false, apiScript = null;
 try { youtubeConsent = localStorage.getItem('scyl.privacy.v1') === 'accepted'; } catch {}
@@ -59,6 +60,7 @@ function openSheet(id, { focusInput = false } = {}) {
 }
 function selectTrack(key) {
   closeSheets();
+  if (overlap.snapshot()?.incoming.key === key && overlap.snapshot()?.confirmed && overlap.finish()) return;
   void switchTo(key, { autoplay: youtubeConsent, nativePreview: ios });
   if (!youtubeConsent) openSheet('connect-dialog');
 }
@@ -94,17 +96,77 @@ function setGain(slot, gain) {
   if (slot.ready) { try { slot.player.setVolume(Math.round(volume * slot.gain)); } catch { /* Ready may race navigation. */ } }
 }
 function applyVolume() { slots.forEach(slot => setGain(slot, slot.gain)); }
+const overlap = createYouTubeOverlapController({
+  context: () => ({
+    current: currentTrack() ? { ...currentTrack(), slot: activeSlot } : null,
+    next: nextTrack() ? { ...nextTrack(), slot: 1 - activeSlot } : null,
+    allowed: playbackAllowed(), seeking, switching,
+  }),
+  read(index) {
+    const slot = slots[index], data = readPlayer(slot, 'getVideoData', {});
+    return { key: slot.key, ready: slot.ready, failed: slot.failed,
+      state: playerState(slot), time: readPlayer(slot, 'getCurrentTime'),
+      duration: readPlayer(slot, 'getDuration'), videoId: data.video_id,
+      isLive: data.isLive === true || data.isLiveContent === true };
+  },
+  start(index, track) {
+    const slot = slots[index];
+    try { slot.player.setPlaybackRate?.(1); } catch { /* A cued player already defaults to normal speed. */ }
+    const time = readPlayer(slot, 'getCurrentTime');
+    if (Math.abs(time - track.startSeconds) > .25 || playerState(slot) === ENDED) {
+      slot.player.loadVideoById({ videoId: track.id, startSeconds: track.startSeconds });
+    } else slot.player.playVideo();
+  },
+  pause: index => pauseSlot(slots[index]),
+  gain: (index, value) => setGain(slots[index], value),
+  reveal: (_outgoing, incoming) => showSource(slots[incoming]),
+  promote(_outgoing, incoming) {
+    generation++; activeSlot = incoming.slot; currentKey = incoming.key;
+    playing = true; switching = false; needsNativePlay = false;
+    clearTimeout(playWaitTimer);
+    const track = currentTrack();
+    if (track && playedIds.size < 14) playedIds.add(track.id);
+    $('source-help-' + activeSlot).hidden = true;
+    persist(); render(); prepareNext();
+  },
+  changed(state) {
+    if ($('source-section')) {
+      $('source-section').dataset.overlap = String(!!state);
+      $('source-section').dataset.overlapProgress = String(state?.progress || 0);
+    }
+    document.body.dataset.youtubeOverlap = String(!!state);
+    renderSources(); renderPlayback();
+  },
+  notice(reason) {
+    const messages = {
+      waiting: '마지막 10% · 다음 곡 연결 중', mixing: '마지막 10% · 두 곡 겹침 재생 중', promoted: '재생 중',
+      'autoplay-blocked': '다음 곡 자동 재생이 차단됐어요. 현재 곡은 계속 재생합니다.',
+      'incoming-timeout': '다음 곡 연결이 지연돼 현재 곡을 계속 재생합니다.',
+      'incoming-unavailable': '다음 곡을 재생하지 못해 현재 곡을 계속 재생합니다.',
+      'not-visible': '현재 곡을 계속 재생합니다. 다음 곡을 누르면 이어 들을 수 있어요.',
+      'outgoing-error': '현재 곡 재생 오류로 겹침 재생을 멈췄습니다.',
+      'ended-unavailable': '현재 곡 재생 완료 · 다음 곡을 눌러 이어 들으세요.',
+    };
+    if (reason === 'ended-unavailable') playing = false;
+    if (messages[reason]) setStatus(messages[reason]);
+    renderPlayback();
+  },
+});
 function cancelFade({ restoreGain = true } = {}) {
-  fade = null; awaitingFade = null; lastTime = null;
+  overlap.cancel(); lastTime = null;
   clearTimeout(playWaitTimer);
-  if (restoreGain) slots.forEach(slot => setGain(slot, 1));
+  if (restoreGain) slots.forEach(slot => setGain(slot, slot.index === activeSlot ? 1 : 0));
 }
 function pauseSlot(slot) { if (slot.ready) { try { slot.player.pauseVideo(); } catch { /* A failed player is reported by its error event. */ } } }
 function showSource(slot) {
   if (document.querySelector('dialog[open]')) return false;
   const section = $('source-section');
   if (section) section.hidden = false;
-  document.querySelectorAll('.source-card[data-source]').forEach(card => { card.hidden = Number(card.dataset.source) !== slot.index; });
+  const together = overlap.snapshot();
+  document.querySelectorAll('.source-card[data-source]').forEach(card => {
+    const index = Number(card.dataset.source);
+    card.hidden = together ? ![together.outgoing.slot, together.incoming.slot].includes(index) : index !== slot.index;
+  });
   // Automatic starts require at least half of the real YouTube player on screen.
   const shell = document.querySelectorAll('.player-shell')[slot.index];
   if (!shell) return false;
@@ -152,7 +214,7 @@ function cue(slot, track) {
   slot.player.cueVideoById({ videoId: track.id, startSeconds: track.startSeconds });
 }
 function prepareNext() {
-  if (switching) return;
+  if (switching || overlap.snapshot()) return;
   const other = slots[1 - activeSlot], next = nextTrack();
   if (!other.ready) return;
   if (next && next.key !== currentKey) cue(other, next);
@@ -180,7 +242,7 @@ async function waitForStop(token) {
   }
   return generation === token;
 }
-async function switchTo(key, { autoplay = true, fadeIn = false, nativePreview = false } = {}) {
+async function switchTo(key, { autoplay = true, nativePreview = false } = {}) {
   const target = trackFor(key);
   if (!target) return;
   cancelJog();
@@ -189,7 +251,7 @@ async function switchTo(key, { autoplay = true, fadeIn = false, nativePreview = 
     setStatus(apiFailed ? 'YouTube 연결 실패 · 새로고침 후 다시 시도' : 'YouTube 플레이어 준비 중'); return;
   }
   const token = ++generation;
-  switching = true; cancelFade({ restoreGain: false }); playing = false;
+  switching = true; overlap.reset(); cancelFade({ restoreGain: false }); playing = false;
   // Confirm the old playback has actually stopped before commanding a new one.
   slots.forEach(pauseSlot); setStatus('다음 곡 준비 중'); renderPlayback();
   try {
@@ -198,10 +260,11 @@ async function switchTo(key, { autoplay = true, fadeIn = false, nativePreview = 
     if (!slot) slot = slots[1 - activeSlot].ready ? slots[1 - activeSlot] : slots[activeSlot];
     slots.forEach(candidate => setGain(candidate, 1));
     currentKey = key; activeSlot = slot.index; slot.key = key; slot.failed = false;
+    overlap.release(slot.index);
     switching = false; lastTime = null;
     if (autoplay && !nativePreview && playbackAllowed() && showSource(slot)) {
-      awaitingFade = fadeIn && !ios ? { key, slot: slot.index, duration: modes[mode].fadeIn } : null;
-      setGain(slot, awaitingFade ? 0 : 1);
+      setGain(slot, 1);
+      try { slot.player.setPlaybackRate?.(1); } catch { /* A new video defaults to normal speed. */ }
       slot.player.loadVideoById({ videoId: target.id, startSeconds: target.startSeconds });
       armPlayWait(key);
       setStatus('재생 준비 중');
@@ -221,16 +284,17 @@ function armPlayWait(key) {
   clearTimeout(playWaitTimer);
   playWaitTimer = setTimeout(() => {
     if (currentKey !== key || playerState(slots[activeSlot]) === PLAYING) return;
-    awaitingFade = null; setGain(slots[activeSlot], 1);
+    setGain(slots[activeSlot], 1);
     const slot = slots[activeSlot];
     guideNativePlay(slot, playerState(slot) === BUFFERING
       ? '영상 로딩이 지연되고 있어요. 재생 화면 다시 열기를 누른 뒤 원본 영상의 ▶로 시작해 주세요.'
       : '아래 원본 영상의 ▶를 직접 눌러 시작해 주세요.');
   }, 12000);
 }
-function advance({ fadeIn = true } = {}) {
+function advance() {
+  if (overlap.snapshot()?.confirmed && overlap.finish()) return;
   const next = nextTrack();
-  if (next) void switchTo(next.key, { autoplay: true, fadeIn });
+  if (next) void switchTo(next.key, { autoplay: true });
   else { cancelFade(); playing = false; setStatus('세트 재생 완료'); renderPlayback(); }
 }
 function onState(slot, state) {
@@ -245,6 +309,7 @@ function onState(slot, state) {
     if (state === PLAYING) pauseSlot(slot);
     return;
   }
+  if (overlap.state(slot.index, state)) { renderPlayback(); return; }
   if (state === PLAYING) {
     // Native YouTube controls are supported. A user-started source becomes current.
     if (!trackFor(slot.key)) { pauseSlot(slot); return; }
@@ -256,10 +321,7 @@ function onState(slot, state) {
     $('source-help-' + slot.index).hidden = true;
     const track = currentTrack();
     if (track && playedIds.size < 14 && !playedIds.has(track.id)) { playedIds.add(track.id); persist(); renderTrial(); }
-    if (awaitingFade?.key === currentKey && awaitingFade.slot === activeSlot) {
-      fade = { phase: 'in', slot: activeSlot, key: currentKey, start: readPlayer(slot, 'getCurrentTime'), duration: awaitingFade.duration };
-      awaitingFade = null; setStatus('다음 곡 페이드인');
-    } else setStatus(fade?.phase === 'out' ? '곡 끝 페이드아웃' : ios ? '재생 중 · iOS 순차 전환' : '재생 중');
+    setStatus('재생 중');
     prepareNext(); renderPlayback();
   } else if (slot.index === activeSlot) {
     if (state === PAUSED) {
@@ -275,9 +337,10 @@ function onState(slot, state) {
 }
 function onError(slot, code) {
   slot.failed = true;
+  const incomingFailed = overlap.failure(slot.index);
   const messages = { 2: '영상 주소를 확인해 주세요.', 5: '영상 플레이어 오류입니다. 다시 재생해 주세요.', 100: '삭제되었거나 비공개인 영상입니다.', 101: '이 영상은 외부 앱 재생을 허용하지 않습니다.', 150: '이 영상은 외부 앱 재생을 허용하지 않습니다.', 153: 'YouTube가 앱의 출처를 확인하지 못했습니다. HTTP 주소에서 다시 열어 주세요.' };
   const message = messages[code] || `YouTube 재생 오류 (${code})입니다.`;
-  if (slot.index === activeSlot) { generation++; switching = false; cancelFade(); playing = false; setStatus(message, true); renderPlayback(); }
+  if (slot.index === activeSlot && !incomingFailed) { generation++; switching = false; cancelFade(); playing = false; setStatus(message, true); renderPlayback(); }
   toast(`${slot.index === activeSlot ? '현재 곡' : '다음 곡'}: ${message} 다른 곡을 선택할 수 있습니다.`);
 }
 function renderSources() {
@@ -288,7 +351,11 @@ function renderSources() {
     link.hidden = !track;
     if (track) link.href = track.url;
   });
-  document.querySelectorAll('.source-card[data-source]').forEach(card => { card.hidden = Number(card.dataset.source) !== activeSlot; });
+  const together = overlap.snapshot();
+  document.querySelectorAll('.source-card[data-source]').forEach(card => {
+    const index = Number(card.dataset.source);
+    card.hidden = together ? ![together.outgoing.slot, together.incoming.slot].includes(index) : index !== activeSlot;
+  });
 }
 function renderTrial() { $('trial-count').textContent = `${Math.min(14, playedIds.size)} / 14`; }
 function renderArtwork(name, track) {
@@ -329,10 +396,12 @@ function renderPlayback() {
   // Play explains the next step, including on a fresh visit before consent.
   $('play').disabled = switching;
   $('play').textContent = actualPlaying || buffering ? 'Ⅱ' : '▶'; $('play').setAttribute('aria-label', actualPlaying || buffering ? '일시정지' : '재생');
-  $('current-record').classList.toggle('playing', actualPlaying); $('next-record').classList.remove('playing');
+  const together = overlap.snapshot();
+  const nextPlaying = !!together && playerState(slots[together.incoming.slot]) === PLAYING && together.confirmed;
+  $('current-record').classList.toggle('playing', actualPlaying); $('next-record').classList.toggle('playing', nextPlaying);
   document.body.dataset.playing = String(actualPlaying);
   if ($('now-badge')) $('now-badge').textContent = actualPlaying ? 'PLAYING' : buffering ? 'LOADING' : loaded ? 'READY' : 'NOW';
-  if ($('next-badge')) $('next-badge').textContent = nextTrack() ? 'UP NEXT' : 'NEXT';
+  if ($('next-badge')) $('next-badge').textContent = nextPlaying ? 'PLAYING' : nextTrack() ? 'UP NEXT' : 'NEXT';
   if ($('next-preview')) {
     $('next-preview').disabled = switching;
     $('next-preview').dataset.empty = String(!nextTrack());
@@ -352,7 +421,8 @@ function renderPlayback() {
     : !slot.ready ? 'YouTube에 연결하고 있어요.'
     : buffering ? '영상 불러오는 중 · 원본 영상의 안내를 확인해 주세요. Ⅱ를 누르면 멈춥니다.'
     : needsNativePlay ? '원본 영상 안의 ▶를 눌러 시작하세요.'
-    : actualPlaying ? '재생 중 · 화면을 켜 두면 다음 곡으로 이어집니다.'
+    : nextPlaying ? '마지막 10%에서 두 곡을 원래 속도로 겹쳐 재생합니다.'
+    : actualPlaying ? '재생 중 · 마지막 10%에서 다음 곡을 연결합니다.'
     : '하단의 ▶를 눌러 시작하세요.';
 }
 function renderQueue() {
@@ -389,41 +459,19 @@ function render() {
   $('queue-count').textContent = String(queue.length).padStart(2, '0'); $('empty-state').hidden = queue.length > 0;
   $('repeat').setAttribute('aria-pressed', String(repeat)); $('volume').value = String(volume);
   if ($('volume-value')) $('volume-value').textContent = ios ? '기기 볼륨' : `${volume}%`;
-  $('transition-description').textContent = ios ? 'iOS · 음량 제어 제한, 순차 재생' : `${modes[mode].fadeOut}초 페이드아웃 · ${modes[mode].fadeIn}초 페이드인`;
+  $('transition-description').textContent = '마지막 10% 겹침 재생 · 원래 속도 유지';
   document.querySelectorAll('[data-mode]').forEach(button => { const chosen = button.dataset.mode === mode; button.classList.toggle('selected', chosen); button.setAttribute('aria-pressed', String(chosen)); });
   $('export').disabled = queue.length === 0 || exporting;
   renderTrial(); renderSources(); renderQueue(); renderPlayback();
 }
 function tick() {
-  const now = performance.now(), wallElapsed = (now - lastTick) / 1000; lastTick = now;
   const slot = slots[activeSlot], track = currentTrack();
   if (!slot.ready || !track || switching) return;
   const time = readPlayer(slot, 'getCurrentTime'), duration = readPlayer(slot, 'getDuration');
-  const actualPlaying = playerState(slot) === PLAYING;
   if (!seeking) renderSeekPosition(duration > 0 ? time / duration * 1000 : 0, duration);
   $('duration').textContent = duration > 0 ? formatTime(duration) : '—:——';
   renderSeekAvailability();
-  // Native seek controls do not emit a dedicated event. Cancel a fade on a discontinuity.
-  const jumpedForward = lastTime !== null && wallElapsed < 1 && time - lastTime > 2;
-  const continuingOutro = fade?.phase === 'out' && duration - time <= modes[mode].fadeOut;
-  if (lastTime !== null && (time < lastTime - .6 || (jumpedForward && !continuingOutro))) cancelFade();
-  lastTime = time;
-  if (!actualPlaying || seeking || ios) return;
-  if (fade && (fade.key !== currentKey || fade.slot !== activeSlot)) cancelFade();
-  if (fade) {
-    // Some real YouTube players keep reporting a stale currentTime while PLAYING.
-    // Advance with the foreground playback clock too; buffer/pause never enter here.
-    fade.clockElapsed = Math.min(fade.duration, (fade.clockElapsed || 0) + Math.max(0, Math.min(wallElapsed, .5)));
-    const elapsed = Math.max(0, time - fade.start, fade.clockElapsed);
-    setGain(slot, gainForFade({ elapsed, duration: fade.duration, from: fade.phase === 'in' ? 0 : 1, to: fade.phase === 'in' ? 1 : 0 }));
-    if (elapsed >= fade.duration - .08) {
-      if (fade.phase === 'out') { fade = null; advance(); return; }
-      fade = null; setGain(slot, 1); setStatus('재생 중');
-    }
-  } else if (!awaitingFade && shouldStartTransition({ currentTime: time, duration, fadeOut: modes[mode].fadeOut, hasNext: !!nextTrack(), playing: actualPlaying })) {
-    fade = { phase: 'out', key: currentKey, slot: activeSlot, start: time, duration: Math.max(.1, duration - time) };
-    setStatus('곡 끝 페이드아웃');
-  }
+  overlap.tick();
 }
 async function addTrack(event) {
   event.preventDefault();
@@ -486,7 +534,7 @@ $('next-preview')?.addEventListener('click', () => {
   if (next) selectTrack(next.key);
   else openSheet('queue-dialog', { focusInput: true });
 });
-$('next').addEventListener('click', () => advance({ fadeIn: false }));
+$('next').addEventListener('click', () => advance());
 $('previous').addEventListener('click', () => {
   if (!playbackAllowed()) return;
   const index = currentIndex(); if (index < 0) return;
@@ -602,7 +650,7 @@ document.querySelectorAll('dialog').forEach(dialog => {
 $('export').addEventListener('click', async () => {
   if (exporting || !queue.length) return;
   exporting = true; $('export').disabled = true;
-  const jsonText = JSON.stringify({ app: 'SCYL', version: 1, title: '나의 SCYL 세트', exportedAt: new Date().toISOString(), transitionMode: mode, tracks: queue.map(({ url, title, author }) => ({ url, title, author })) }, null, 2);
+  const jsonText = JSON.stringify({ app: 'SCYL', version: 1, title: '나의 SCYL 세트', exportedAt: new Date().toISOString(), transitionMode: 'overlap-10-percent', overlapFraction: .1, playbackRate: 1, tracks: queue.map(({ url, title, author }) => ({ url, title, author })) }, null, 2);
   try {
     if (window.Capacitor?.isNativePlatform?.()) {
       pausePlayback('세트를 공유하는 동안 일시정지');
@@ -667,7 +715,10 @@ function initializePlayers() {
         },
         onStateChange: event => { if (slot.attempt === attempt) onState(slot, event.data); },
         onError: event => { if (slot.attempt === attempt) onError(slot, event.data); },
-        onAutoplayBlocked: () => { if (slot.attempt === attempt && slot.index === activeSlot) recoverBlockedPlayback(slot); },
+        onAutoplayBlocked: () => {
+          if (slot.attempt !== attempt || overlap.blocked(slot.index)) return;
+          if (slot.index === activeSlot) recoverBlockedPlayback(slot);
+        },
       },
     });
   });
@@ -696,7 +747,6 @@ function startNativeLifecycle() {
 }
 startNativeLifecycle();
 if (ios) {
-  document.querySelector('.engine-note').textContent = 'iOS에서는 YouTube 음량을 프로그램으로 바꿀 수 없어 페이드 없이 순차 재생합니다. 영상 자체의 광고와 버퍼링이 발생할 수 있습니다.';
   $('volume').disabled = true; $('volume').title = '기기의 음량 버튼을 사용하세요.';
 }
 function connectYouTube({ retry = false } = {}) {

@@ -8,7 +8,7 @@ import { mountAccount } from './lib/account-ui.mjs';
 import { mountAppleMusicPanel } from './lib/apple-music-panel.mjs';
 
 const $ = id => document.getElementById(id);
-const mixOptions = Object.freeze({ overlapRatio: .1, beatmatch: false });
+const mixOptions = Object.freeze({ fadeDuration: 8, beatmatch: true });
 let context, engine, tracks = [], fileQueue = [], queueIndex = 0;
 let sourceMode = 'none', busy = false, selectedFx = 0, lastStatus = '';
 let generation = 0, playbackIntent = 0, loadingNext = false, wantsPlayback = false, loading = new AbortController();
@@ -165,7 +165,7 @@ $('audio-files').addEventListener('change', async event => {
   if (files.length > 100) { message('한 번에 최대 100곡까지 선택할 수 있습니다.'); return; }
   const token = resetSession('files'); busy = true;
   fileQueue = files.map(file => ({ id: crypto.randomUUID(), title: file.name.replace(/\.[^.]+$/, '') || file.name, file }));
-  $('source-note').textContent = '파일 음원 10% 겹침 재생 · 속도는 그대로, 음원과 분석 데이터는 이 기기에서만 처리합니다.';
+  $('source-note').textContent = '파일 음원의 BPM과 박자를 맞춰 자동 믹싱합니다. 음원과 분석 데이터는 이 기기에서만 처리합니다.';
   try {
     getContext();
     for (let index = 0; index < fileQueue.length && tracks.length < 2;) {
@@ -178,7 +178,7 @@ $('audio-files').addEventListener('change', async event => {
     }
     if (!tracks.length) { message('재생할 수 있는 음악 파일을 찾지 못했습니다. MP3 또는 WAV 파일을 선택해 주세요.'); return; }
     createEngine(); $('demo-play').disabled = false;
-    message(`${fileQueue.length}곡을 담았습니다. 현재 곡의 마지막 10%에서 다음 곡을 겹쳐 재생합니다.`); renderTracks();
+    message(`${fileQueue.length}곡을 담았습니다. 박자를 맞춰 이어 재생합니다. 박자가 불확실한 곡은 볼륨을 교차합니다.`); renderTracks();
   } catch (error) { if (generation === token) message(error.message); }
   finally { if (generation === token) busy = false; }
 });
@@ -197,9 +197,9 @@ $('demo-load').addEventListener('click', async () => {
     tracks = [makeDemoTrack({ bpm: 120, phase: .08 }, 'demo-a', '합성 데모 · 120 BPM'), makeDemoTrack({ bpm: 126, phase: .13, voice: 1 }, 'demo-b', '합성 데모 · 126 BPM')];
     fileQueue = tracks.map(({ id, title }) => ({ id, title }));
     $('source-note').textContent = '직접 합성한 두 음원으로 믹싱을 확인하는 데모입니다. YouTube 음원이 아닙니다.';
-    createEngine(); engine.seek(Math.max(0, tracks[0].buffer.duration * (1 - mixOptions.overlapRatio) - 3)); engine.resume(); wantsPlayback = true; playbackStarted = true;
+    createEngine(); engine.seek(Math.max(0, tracks[0].buffer.duration - mixOptions.fadeDuration - 3)); engine.resume(); wantsPlayback = true; playbackStarted = true;
     $('demo-play').disabled = false; $('demo-play').textContent = '데모 다시 듣기'; $('pause').disabled = false; $('stop').disabled = false;
-    message('전환 3초 전부터 재생합니다. 마지막 10% 구간에서 속도를 바꾸지 않고 두 곡을 겹칩니다.'); renderTracks();
+    message('전환 약 3초 전부터 재생합니다. 두 곡의 BPM과 박자 위치를 맞춰 겹칩니다.'); renderTracks();
   } catch (error) { if (token === generation) message(error.message); }
   finally { if (token === generation) busy = false; }
 });
@@ -214,11 +214,11 @@ $('demo-play').addEventListener('click', async () => {
     if (context.state !== 'running') throw new Error('오디오를 시작하지 못했습니다. 재생 버튼을 다시 눌러 주세요.');
     if (targetEngine.snapshot().state !== 'paused') {
       targetEngine.prepare(mixOptions);
-      if (sourceMode === 'demo') targetEngine.seek(Math.max(0, tracks[0].buffer.duration * (1 - mixOptions.overlapRatio) - 3));
+      if (sourceMode === 'demo') targetEngine.seek(Math.max(0, tracks[0].buffer.duration - mixOptions.fadeDuration - 3));
     }
     targetEngine.resume(); wantsPlayback = true; playbackStarted = true;
     $('pause').disabled = false; $('stop').disabled = false; $('pause').textContent = '일시정지';
-    $('demo-play').textContent = sourceMode === 'demo' ? '데모 다시 듣기' : '현재 곡 처음부터'; message('재생 중 · 현재 곡의 마지막 10%에서 다음 곡을 겹쳐 재생합니다.');
+    $('demo-play').textContent = sourceMode === 'demo' ? '데모 다시 듣기' : '현재 곡 처음부터'; message('재생 중 · 분석한 박자에 맞춰 다음 곡으로 전환합니다.');
   } catch (error) { if (token === generation && targetEngine === engine && intent === playbackIntent) message(error.message); }
 });
 $('pause').addEventListener('click', async () => {
@@ -376,8 +376,10 @@ function frame() {
     else $('mix-state').textContent = snapshot.state === 'playing' ? '재생 중' : snapshot.state === 'ended' ? '완료' : '정지';
     const plan = snapshot.plan;
     $('wave-detail').textContent = plan
-      ? `마지막 10% · ${plan.fadeDuration.toFixed(1)}초 겹침 · 원래 속도${plan.reason === 'incoming-short' ? ' (짧은 다음 곡에 맞춤)' : plan.reason === 'late-start' ? ' (남은 구간에 맞춤)' : ''}`
-      : '현재 곡의 마지막 10%에서 다음 곡을 겹쳐 재생합니다. 속도는 바꾸지 않습니다.';
+      ? plan.mode === 'beatmatched'
+        ? `비트매칭 · ${plan.fadeDuration.toFixed(1)}초 겹침 · 다음 곡 ${plan.rate.toFixed(3)}배속`
+        : plan.fadeDuration > 0 ? `${plan.fadeDuration.toFixed(1)}초 볼륨 교차 · 박자 정렬 없이 전환` : '겹칠 구간 없이 다음 곡으로 전환합니다.'
+      : '두 곡의 BPM과 박자 위치를 맞춰 이어 재생합니다.';
   }
   requestAnimationFrame(frame);
 }

@@ -2,7 +2,7 @@
 
 **SCYL — Songs Change Your Life.**
 
-SCYL is intended for building personal music playlists, with the user's requested direction being multiple YouTube playlists. The current YouTube implementation still stores one local set; multiple named playlists and YouTube-account synchronization are not implemented. Version 0.4.14 keeps two top-level sections: YouTube listening and automatic mixing. Apple Music search sits directly inside automatic mixing, above local-file controls, without another source tab or Apple link-paste field. Local files provide direct audio processing. The interface preserves the portrait dials and shared gray/orange design.
+SCYL is intended for building personal music playlists, with the user's requested direction being multiple YouTube playlists. The current YouTube implementation still stores one local set; multiple named playlists and YouTube-account synchronization are not implemented. The two top-level labels are **YouTube 듣기** and **파일로 자동 믹싱**. Apple Music search sits directly inside file mixing, above local-file controls, without another source tab or Apple link-paste field. Local files provide direct audio processing. The interface preserves the portrait dials and shared gray/orange design.
 
 ## Web and installed apps
 
@@ -24,10 +24,13 @@ The visual identity uses an off-white surface, charcoal controls, and an orange 
 - Arrange, restore, repeat, and export a local listening set.
 - Play through the visible official YouTube player.
 - Seek with the upper dial's rim or keyboard controls. There is no separate SCYL seek bar.
-- Transition sequentially; use volume fades only where the player supports them.
+- Request the next player at 90% of the current track and overlap its final 10%, keeping original speed; adjust volume only where supported.
+- Keep both original players visible during overlap, with a direct Play action if the browser blocks the next player's automatic start.
 - Pause when the app is no longer in the foreground.
 
-The requested automatic 10% overlap for YouTube remains unmet. The official [automatic and scripted playback requirements](https://developers.google.com/youtube/terms/required-minimum-functionality#autoplay-and-scripted-playbacks) apply to programmatically initiated playback and prohibit multiple YouTube players from automatically playing simultaneously on a page or screen. SCYL stops the current player before starting the next. This is the relevant limit for an automatic transition, not a claim that manual playback in two frames is technically impossible.
+YouTube overlap uses official player timing rather than audio analysis. A three-minute track requests the next player at 2:42, aiming for 18 seconds of overlap. Ads, buffering, and autoplay restrictions may shorten or prevent that interval, and real iPhone playback requires separate verification. This does not match beats or modify playback speed.
+
+The official [automatic and scripted playback requirements](https://developers.google.com/youtube/terms/required-minimum-functionality#autoplay-and-scripted-playbacks) prohibit multiple YouTube players from automatically playing simultaneously on a page or screen. The timed-overlap implementation does not establish policy compliance. Resolving this conflict is a separate requirement before wider distribution; it is not a claim that two players are technically unable to play together.
 
 The YouTube set is stored locally. Its 14-track first-set counter is informational; no payment or usage gate is enforced. Configured builds use the same email identity as MEOW. Cloud sets, advertisements supplied by SCYL, and family account management are not connected. Authentication setup and remaining operational verification are documented in shared-account.md.
 
@@ -37,15 +40,15 @@ The listener can select up to 100 local files, each no larger than 60 MiB or lon
 
 | Area | YouTube mode | Local-file mode |
 | --- | --- | --- |
-| Track transition | Fade out, stop, then start the next player where volume control works | Scheduled overlap with equal-power fades |
-| Beat alignment | Not supported | Default 10% overlap keeps both playback rates at 1.0; it does not align different tempos |
+| Track transition | Request the next player at 90%, aiming for 10% overlap at original speed | Scheduled overlap with equal-power fades |
+| Beat alignment | Not supported; original playback speed | Estimated beat alignment and bounded tempo adjustment, with an unaligned fallback |
 | FX | Source-support information only | Low-pass filter and echo |
 | Waveform | No audio-analysis display | PCM-derived curves; drag left/right to seek both tracks on their shared timeline |
 | Retention | Set and preferences restored from local storage | Files, file queue, and analysis are not persisted |
 
 Selected files and their analysis are not uploaded. Reloading requires selecting files again. An optional synthesized demo provides two original tracks for trying the engine without importing a file. Neither path extracts or processes YouTube audio.
 
-As requested on 2026-11-26, the next file starts when 90% of the current track has elapsed. The final 10% uses equal-power overlapping playback with both rates fixed at 1.0. A three-minute track overlaps for 18 seconds, starting at 2:42. If the next track is shorter or becomes ready late, the overlap is limited to available audio. Legacy beatmatching remains an engine capability, but the file screen's default no longer changes tempo or pitch. Unsupported formats or slow decoding can interrupt a set; offline rendering, browser playback, and physical-device testing remain distinct checks.
+The file screen enables beatmatching with an eight-second target transition. Reliable estimated beat grids and a suitable tempo ratio allow alignment; weak analysis, an unsuitable ratio, or too little audio falls back to a plain crossfade or cut. Aligned transitions may be shorter than eight seconds to fit whole beats and available audio. Tempo adjustment uses playback rate and changes pitch; pitch-preserving time stretching is not implemented. The engine retains the previous fixed-speed percentage-overlap option, but it is no longer the file screen's default. Unsupported formats or slow decoding can interrupt a set; offline rendering, browser playback, and physical-device testing remain distinct checks.
 
 ## Apple Music search and account connection
 
@@ -59,7 +62,7 @@ Selecting a public result opens Apple's official embedded player in the same pag
 
 The MusicKit adapter implements developer-token configuration, explicit Apple authorization, the account storefront's catalog search, and one-song playback. **As of 0.4.14, production has no MusicKit developer key configured.** The Apple login button therefore shows an unavailable/preparation state; real Apple authorization and subscriber playback are not live verified. Successful developer-site sign-in alone does not provision the MusicKit key. Personal-library import and Apple playlist synchronization are not implemented.
 
-Apple Music search and official playback do not provide SCYL with decoded audio, waveform analysis, a dual-deck overlap, or beatmatching. The local-file 10% overlap is separate and does not process Apple Music tracks. Apple's approved DJ integrations are distinct and are not implemented in SCYL; this is not a claim that Apple Music can never support DJ software.
+Apple Music search and official playback do not provide SCYL with decoded audio, waveform analysis, a dual-deck overlap, or beatmatching. The local-file mixing engine is separate and does not process Apple Music tracks. Apple's approved DJ integrations are distinct and are not implemented in SCYL; this is not a claim that Apple Music can never support DJ software.
 
 References: [Apple Search API](https://performance-partners.apple.com/search-api), [Apple's embed guidance](https://artists.apple.com/support/1117-apple-music-marketing-tools), [MusicKit credentials](https://developer.apple.com/help/account/capabilities/create-a-media-identifier-and-private-key), [approved DJ integrations](https://music.apple.com/gb/curator/dj-with-apple-music/1798261090).
 

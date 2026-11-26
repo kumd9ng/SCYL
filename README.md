@@ -10,11 +10,11 @@
 
 A portrait music player built around two circular dials: the song playing now and the song coming next. Build a YouTube listening set from links, search Apple's public music catalog, or select local audio files for Web Audio mixing. Off-white, charcoal, and one orange indicator bring the feel of a classic portable player to the screen.
 
-> YouTube 링크로 곡을 모으고, 자동 믹싱 화면에서 Apple 음악을 검색하거나 기기의 음악 파일을 10% 겹쳐 재생하는 세로형 음악 앱입니다. Apple 검색은 현재 미국 공개 음악 목록을 사용하며 Apple Music 비트매칭은 지원하지 않습니다. SCYL은 **Songs Change Your Life.**의 약자입니다.
+> YouTube 링크로 곡을 모아 마지막 10%를 겹쳐 듣고, 파일로 자동 믹싱 화면에서는 기기의 음악 파일을 분석해 박자를 맞추는 세로형 음악 앱입니다. Apple 검색은 현재 미국 공개 음악 목록을 사용하며 Apple Music 비트매칭은 지원하지 않습니다. SCYL은 **Songs Change Your Life.**의 약자입니다.
 
 **웹과 설치형 앱을 함께 개발합니다.** 웹은 설치 없이 브라우저에서 사용하며, iOS·Android 앱도 같은 재생·믹싱 코드를 사용합니다. 웹 사용에는 TestFlight나 개발자 계정이 필요하지 않습니다. 설치형 앱의 스토어 배포는 별도로 준비 중입니다.
 
-**Development preview, 0.4.14:** YouTube uses the official player and sequential transitions, without beatmatching or audio FX. The automatic-mixing page contains Apple Music search directly above local-file controls, with no nested source tabs or Apple link-paste form. Its current public search uses the US iTunes Store catalog; production MusicKit credentials are absent, so SCYL's Apple account login and subscriber playback are not yet live verified. Local files provide sample-based waveforms, fixed-speed 10% overlapping transitions, and filter/echo processing. Apple Music does not use that local-file processing engine.
+**Development preview:** the two main sections are **YouTube 듣기** and **파일로 자동 믹싱**. YouTube schedules the next official player when the current track reaches 90%, aiming to overlap the final 10% at original speed, without beatmatching or audio FX. The file-mixing page contains Apple Music search directly above local-file controls, with no nested source tabs or Apple link-paste form. Its current public search uses the US iTunes Store catalog; production MusicKit credentials are absent, so SCYL's Apple account login and subscriber playback are not yet live verified. Local files provide sample-based waveforms, scheduled transitions, and filter/echo processing. Apple Music does not use that local-file processing engine.
 
 ## Start listening
 
@@ -40,7 +40,7 @@ The interface is currently in Korean. Your YouTube set is saved locally. A build
 | Upper/lower dials | Current and next video thumbnails after consent | Current and next decoded tracks |
 | **fx** controls | Explain source limitations; no effects are applied | Apply a low-pass filter and echo |
 | Center graph | No audio-analysis display | Two smooth filled curves; drag them left/right to move both tracks along their shared timeline |
-| Transition | Stop the current player before starting the next | Overlap the final 10% at original playback speed |
+| Transition | Start the next player at 90%, aiming for 10% overlap at original speed | Scheduled overlap using decoded audio |
 | Input | Individual YouTube video URLs | Audio files selected from the device |
 | Original video | Visible, separate, and unmasked while playing | No YouTube connection is required |
 
@@ -48,9 +48,11 @@ YouTube sets support reordering, local restoration, repeat, and JSON export. Ind
 
 ## Playback today
 
-SCYL's YouTube mode uses the official iframe player. Where programmatic volume control works, it fades out the current song, stops that player, then starts and fades in the next. This is a **sequential fade**, not a simultaneous crossfade. iPhone uses device volume controls and sequential playback without a promised fade.
+SCYL's YouTube mode uses two official iframe players. At 90% of the current track, it requests the next track without stopping the current one, then promotes the next track after the remaining 10%. Playback speed stays unchanged. Both original players remain visible and operable during the overlap: side by side on wider screens and stacked on phones. Where player volume controls are available, the transition adjusts their gains; iPhone uses device volume controls.
 
-The requested automatic 10% YouTube overlap remains unimplemented. YouTube's [automatic and scripted playback requirements](https://developers.google.com/youtube/terms/required-minimum-functionality#autoplay-and-scripted-playbacks) prohibit more than one embedded YouTube player from automatically playing content simultaneously on the same page or screen. SCYL therefore keeps automatic transitions sequential; this does not claim that two manually operated players are technically incapable of playing together.
+If the browser blocks the incoming player's automatic start, SCYL keeps the current song playing and asks the user to select **다음 곡**. That explicit selection opens the next original player, whose Play button can be used if needed. Ads, buffering, and player restrictions can shorten or prevent the planned overlap. Mocked scheduling checks do not establish a successful transition on a physical iPhone.
+
+Service-policy review remains separate from implementation: YouTube's [automatic and scripted playback requirements](https://developers.google.com/youtube/terms/required-minimum-functionality#autoplay-and-scripted-playbacks) prohibit more than one embedded player from automatically playing content simultaneously on a page or screen. Implementing timed overlap does not establish that this behavior meets that requirement; wider distribution needs that conflict resolved.
 
 YouTube ads, buffering, embedding restrictions, and browser autoplay rules can leave a gap. SCYL does not remove YouTube ads, include YouTube Premium, extract audio, or provide background playback.
 
@@ -62,21 +64,21 @@ After `npm start`, open **http://127.0.0.1:4317/mix-lab.html** or follow the sou
 
 Select up to **100 files**, with a maximum of **60 MiB and 12 minutes per file**. Supported formats depend on the browser's decoder; mono and stereo are accepted. SCYL reads local metadata, decodes the current and next tracks into two playback buffers, and analyzes their PCM in a worker for waveform peaks and estimated tempo/beat positions. Files, the file queue, and analysis results are not uploaded or persisted; select the files again after reloading.
 
-Two audio sources share one Web Audio clock. The next file starts at 90% of the current track, and the final 10% overlaps with an equal-power crossfade. A three-minute track starts its transition at 2:42 and overlaps for 18 seconds. Both playback rates stay at 1.0; a shorter or late-ready next track limits the overlap to available audio. Between the dials, two smooth filled curves follow decoded audio and playback position, crossing within the highlighted transition region. Filter and echo controls process the actual audio.
+Two audio sources share one Web Audio clock. The file screen enables estimated-beat alignment with an eight-second target overlap and equal-power fades. Reliable grids and a suitable tempo ratio allow the next track to start on an estimated beat; uncertain analysis, an unsuitable ratio, or insufficient available audio falls back to an unaligned crossfade or cut. Between the dials, two smooth filled curves follow decoded audio and playback position, crossing within the highlighted transition region. Filter and echo controls process the actual audio.
 
 Drag the center curves **left to move forward, right to move backward**. Both tracks follow the same timeline during a transition. Playback continues from the selected position after releasing a drag that began while playing; a paused selection stays silent. The graph also supports Left/Right keys in five-second steps and Home/End. It can seek within the decoded pair, including earlier parts of the current track after a transition; previously released tracks require selecting those files again.
 
-The current file screen preserves tempo and pitch; its fixed 10% overlap does not align different tempos. The engine retains legacy estimated-beat alignment, but that rate-changing path is not the screen's default. Analysis is not guaranteed accurate for every song. Native file selection and playback still require physical-device verification.
+File beatmatching adjusts playback rate, which also changes pitch; pitch-preserving time stretching is not implemented. The eight-second target may be shortened to whole beats or available audio. The engine still supports the earlier fixed-speed percentage-overlap option, but it is not the file screen's current default. Analysis is not guaranteed accurate for every song. Native file selection and playback still require physical-device verification.
 
 Leaving the app or an audio interruption pauses both tracks at their current positions. Returning to the app does not restart sound automatically; press **이어 듣기** to continue. Native playback waits until the app has confirmed it is ready and active.
 
 ## Apple Music search
 
-Open **자동 믹싱**, enter a song or artist in the Apple Music search field, press **검색**, and choose **담기**. No Apple share link is required. The current production fallback searches up to 20 songs in the **US public iTunes Store catalog**, displaying title, artist, and album. It is not the full Korean Apple Music catalog or a personal library. The explicit US label reflects that limit; a live `country=kr` test returned no songs while the same US search returned results. Public iTunes artwork and raw preview audio are not used by this interface. See Apple's [Search API documentation](https://performance-partners.apple.com/search-api).
+Open **파일로 자동 믹싱**, enter a song or artist in the Apple Music search field, press **검색**, and choose **담기**. No Apple share link is required. The current production fallback searches up to 20 songs in the **US public iTunes Store catalog**, displaying title, artist, and album. It is not the full Korean Apple Music catalog or a personal library. The explicit US label reflects that limit; a live `country=kr` test returned no songs while the same US search returned results. Public iTunes artwork and raw preview audio are not used by this interface. See Apple's [Search API documentation](https://performance-partners.apple.com/search-api).
 
 Selected songs appear in a temporary collection of up to 50 songs and open Apple's official embedded player within the page. Selecting a song also requests other songs by its artist and displays them as circular LP cards under **같은 아티스트의 다른 곡**. These are catalog matches, not Apple's personalized recommendations or an Apple-generated autoplay queue. Apple controls preview/full-track availability, region restrictions, and any sign-in inside its player; a loaded frame does not prove subscriber playback. The collection and related-song display are not saved after reload or SCYL account lock. Changing to local playback or leaving the foreground stops the Apple player. See Apple's [embedded-player guidance](https://artists.apple.com/support/1117-apple-music-marketing-tools).
 
-The MusicKit adapter includes developer-token configuration, Apple authorization, storefront catalog search, and single-song playback. **Production has no MusicKit developer key configured**, so SCYL's own Apple login button remains disabled with a preparation message. Live Apple authorization and subscriber playback have not been verified. Personal-library import, Apple playlist synchronization, dual-deck overlap, audio analysis, and Apple Music beatmatching are not implemented. The presence of Apple search inside **자동 믹싱** does not mean Apple audio can be mixed by the local-file engine.
+The MusicKit adapter includes developer-token configuration, Apple authorization, storefront catalog search, and single-song playback. **Production has no MusicKit developer key configured**, so SCYL's own Apple login button remains disabled with a preparation message. Live Apple authorization and subscriber playback have not been verified. Personal-library import, Apple playlist synchronization, dual-deck overlap, audio analysis, and Apple Music beatmatching are not implemented. The presence of Apple search inside **파일로 자동 믹싱** does not mean Apple audio can be mixed by the local-file engine.
 
 ## Development
 
